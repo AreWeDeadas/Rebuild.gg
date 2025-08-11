@@ -91,6 +91,10 @@ local config = {
         },
         BindActive = false,
     },
+    Debug = {
+        Enabled = false,
+        Throttle = 0.5,
+    },
 }
 
 -- default theme override start
@@ -145,6 +149,436 @@ if library and library.keybind_list_frame then
 end
 
 
+-- utility framework start
+do
+    -- универсальные утилиты
+    local utility = {}
+    
+    -- валидация игрока
+    function utility:ValidateClient(player)
+        if not player or player == vars.lp then return nil end
+        local character = player.Character
+        if not character then return nil end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local rootpart = character:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not rootpart or humanoid.Health <= 0 then return nil end
+        return character, humanoid, rootpart
+    end
+    
+    -- получение информации об игроке
+    function utility:GetPlayerInfo(player)
+        local character = player and player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local rootpart = humanoid and humanoid.RootPart
+        return character, humanoid, rootpart
+    end
+    
+    -- безопасный юнит вектор
+    function utility:SafeUnit(vector)
+        if vector.Magnitude > 1e-8 then
+            return vector.Unit
+        end
+        return Vector3.zero
+    end
+    
+    -- конвертация в экранные координаты
+    function utility:ToScreen(position)
+        local pos, onScreen = vars.camera:WorldToViewportPoint(position)
+        return pos, onScreen
+    end
+    
+    -- проверка на форсфилд
+    function utility:HasForcefield(player)
+        local char = player and player.Character
+        if not char then return false end
+        return char:FindFirstChildOfClass("ForceField") ~= nil
+    end
+    
+    -- проверка на нокдаун
+    function utility:IsKnocked(player)
+        local char = player and player.Character
+        if not char then return false end
+        local bodyEffects = char:FindFirstChild("BodyEffects")
+        if not bodyEffects then return false end
+        local ko = bodyEffects:FindFirstChild("K.O")
+        if not ko then return false end
+        local ok, val = pcall(function()
+            return ko.Value
+        end)
+        return ok and val == true
+    end
+    
+    -- проверка видимости
+    function utility:IsVisible(worldPos, targetCharacter)
+        if not worldPos then return false end
+        local origin = vars.camera.CFrame.Position
+        local rp = RaycastParams.new()
+        rp.FilterType = Enum.RaycastFilterType.Exclude
+        rp.FilterDescendantsInstances = {vars.lp.Character, targetCharacter}
+        local result = vars.ws:Raycast(origin, (worldPos - origin), rp)
+        return result == nil
+    end
+    
+    -- расстояние между позициями
+    function utility:GetDistance(pos1, pos2)
+        if not pos1 or not pos2 then return math.huge end
+        return (pos1 - pos2).Magnitude
+    end
+    
+    -- расстояние до мыши
+    function utility:GetMouseDistance(screenPos)
+        local mouse = vars.lp:GetMouse()
+        local dx = mouse.X - screenPos.X
+        local dy = mouse.Y - screenPos.Y
+        return math.sqrt(dx*dx + dy*dy)
+    end
+    
+    -- получение ближайшего игрока к мыши
+    function utility:GetClosestToMouse(maxDistance, checks)
+        local bestDist = maxDistance or math.huge
+        local best = nil
+        local mouse = vars.lp:GetMouse()
+        
+        for _, plr in ipairs(vars.players:GetPlayers()) do
+            if plr ~= vars.lp then
+                local character, humanoid, rootpart = self:ValidateClient(plr)
+                if character and humanoid and rootpart then
+                    local sp, onScreen = self:ToScreen(rootpart.Position)
+                    if onScreen then
+                        local skip = false
+                        
+                        -- применяем проверки если переданы
+                        if checks then
+                            if checks.forcefield and self:HasForcefield(plr) then
+                                skip = true
+                            end
+                            if checks.knocked and self:IsKnocked(plr) then
+                                skip = true
+                            end
+                            if checks.visible and not self:IsVisible(rootpart.Position, character) then
+                                skip = true
+                            end
+                        end
+                        
+                        if not skip then
+                            local dist = self:GetMouseDistance(sp)
+                            if dist < bestDist then
+                                bestDist = dist
+                                best = plr
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        return best, bestDist
+    end
+    
+    -- получение части тела игрока
+    function utility:GetBodyPart(character, partName)
+        if not character then return nil end
+        return character:FindFirstChild(partName)
+    end
+    
+    -- предикт позиции
+    function utility:PredictPosition(part, velocity, time)
+        if not part or not velocity then return part and part.Position end
+        return part.Position + (velocity * time)
+    end
+    
+    -- получение скорости объекта
+    function utility:GetVelocity(part)
+        if not part then return Vector3.zero end
+        local velocity = part.AssemblyLinearVelocity or part.Velocity
+        return velocity or Vector3.zero
+    end
+    
+    -- проверка на команду
+    function utility:IsTeammate(player)
+        if not player or not vars.lp then return false end
+        if not player.Team or not vars.lp.Team then return false end
+        return player.Team == vars.lp.Team
+    end
+    
+    -- получение здоровья
+    function utility:GetHealth(humanoid)
+        if not humanoid then return 0, 100 end
+        return humanoid.Health, humanoid.MaxHealth
+    end
+    
+    -- проверка жив ли игрок
+    function utility:IsAlive(player)
+        local character, humanoid = self:ValidateClient(player)
+        return character ~= nil and humanoid ~= nil and humanoid.Health > 0
+    end
+    
+    -- получение дистанции между точками
+    function utility:GetDistance3D(pos1, pos2)
+        if not pos1 or not pos2 then return math.huge end
+        return (pos1 - pos2).Magnitude
+    end
+    
+    -- получение 2D дистанции (игнорируя Y)
+    function utility:GetDistance2D(pos1, pos2)
+        if not pos1 or not pos2 then return math.huge end
+        local delta = Vector3.new(pos1.X - pos2.X, 0, pos1.Z - pos2.Z)
+        return delta.Magnitude
+    end
+    
+    -- проверка в радиусе FOV
+    function utility:IsInFOV(screenPos, fov)
+        if not screenPos or not fov then return false end
+        local mouse = vars.lp:GetMouse()
+        local dist = self:GetMouseDistance(screenPos)
+        return dist <= fov
+    end
+    
+    -- получение угла между векторами
+    function utility:GetAngle(v1, v2)
+        if not v1 or not v2 then return 0 end
+        local dot = v1:Dot(v2)
+        local mag = v1.Magnitude * v2.Magnitude
+        if mag == 0 then return 0 end
+        return math.acos(self:Clamp(dot / mag, -1, 1))
+    end
+    
+    -- нормализация угла
+    function utility:NormalizeAngle(angle)
+        while angle > math.pi do
+            angle = angle - 2 * math.pi
+        end
+        while angle < -math.pi do
+            angle = angle + 2 * math.pi
+        end
+        return angle
+    end
+    
+    -- получение направления взгляда
+    function utility:GetLookDirection(character)
+        if not character then return Vector3.zero end
+        local head = character:FindFirstChild("Head")
+        if not head then return Vector3.zero end
+        return head.CFrame.LookVector
+    end
+    
+    -- проверка смотрит ли игрок на цель
+    function utility:IsLookingAt(character, targetPos, threshold)
+        threshold = threshold or 0.5
+        local lookDir = self:GetLookDirection(character)
+        if lookDir == Vector3.zero then return false end
+        
+        local head = character:FindFirstChild("Head")
+        if not head then return false end
+        
+        local toTarget = (targetPos - head.Position).Unit
+        local dot = lookDir:Dot(toTarget)
+        return dot > threshold
+    end
+    
+    -- получение ping (безопасно; кэш + авто-отключение на ошибке)
+    function utility:GetPing()
+        -- кэш структуры
+        utility._pingCache = utility._pingCache or { value = (config and config.Network and tonumber(config.Network.DefaultPing)) or 0, t = 0, disabled = false }
+        local cache = utility._pingCache
+
+        -- если ранее упали по capability, больше не пытаемся читать Stats
+        if cache.disabled then
+            return cache.value
+        end
+
+        -- не обновлять чаще, чем раз в 3 секунды
+        local now = os.clock()
+        if (now - (cache.t or 0)) < 3 then
+            return cache.value
+        end
+
+        local ok, value = pcall(function()
+            local stats = game:GetService("Stats")
+            local item = stats and stats.Network and stats.Network.ServerStatsItem and stats.Network.ServerStatsItem["Data Ping"]
+            if item and item.GetValue then
+                return item:GetValue()
+            end
+            return nil
+        end)
+
+        if ok and type(value) == "number" then
+            cache.value = value
+            cache.t = now
+            return cache.value
+        else
+            -- отключаем дальнейшие попытки, чтобы не спамить ошибки
+            cache.disabled = true
+            cache.t = now
+            return cache.value
+        end
+    end
+    
+    -- безопасное деление
+    function utility:SafeDivide(a, b, default)
+        if b == 0 or not b then return default or 0 end
+        return a / b
+    end
+    
+    -- клэмп значения
+    function utility:Clamp(value, min, max)
+        return math.max(min, math.min(max, value))
+    end
+    
+    -- линейная интерполяция
+    function utility:Lerp(a, b, t)
+        return a + (b - a) * self:Clamp(t, 0, 1)
+    end
+    
+    -- проверка на стену между точками
+    function utility:HasWallBetween(pos1, pos2, ignoreList)
+        if not pos1 or not pos2 then return true end
+        local rp = RaycastParams.new()
+        rp.FilterType = Enum.RaycastFilterType.Exclude
+        rp.FilterDescendantsInstances = ignoreList or {vars.lp.Character}
+        
+        local result = vars.ws:Raycast(pos1, (pos2 - pos1), rp)
+        return result ~= nil
+    end
+    
+    -- получение ближайшей точки на линии
+    function utility:GetClosestPointOnLine(lineStart, lineEnd, point)
+        local lineVec = lineEnd - lineStart
+        local pointVec = point - lineStart
+        local lineLen = lineVec.Magnitude
+        
+        if lineLen == 0 then return lineStart end
+        
+        local t = self:Clamp(pointVec:Dot(lineVec) / (lineLen * lineLen), 0, 1)
+        return lineStart + lineVec * t
+    end
+    
+    -- проверка наличия инструмента
+    function utility:HasTool(character)
+        if not character then return false end
+        return character:FindFirstChildWhichIsA("Tool") ~= nil
+    end
+    
+    -- получение текущего инструмента
+    function utility:GetTool(character)
+        if not character then return nil end
+        return character:FindFirstChildWhichIsA("Tool")
+    end
+    
+    -- активация инструмента
+    function utility:ActivateTool(tool)
+        if not tool then return false end
+        local ok = pcall(function()
+            if tool.Activate then tool:Activate() end
+        end)
+        return ok
+    end
+    
+    -- получение позиции мыши
+    function utility:GetMousePosition()
+        local mouse = vars.lp:GetMouse()
+        return Vector2.new(mouse.X, mouse.Y)
+    end
+    
+    -- получение 3D позиции мыши
+    function utility:GetMouse3DPosition()
+        local mouse = vars.lp:GetMouse()
+        return mouse.Hit and mouse.Hit.Position or Vector3.zero
+    end
+    
+    -- проверка находится ли точка в круге
+    function utility:IsInCircle(point, center, radius)
+        if not point or not center then return false end
+        local dist = (point - center).Magnitude
+        return dist <= radius
+    end
+    
+    -- получение случайного числа в диапазоне
+    function utility:RandomFloat(min, max)
+        return min + (max - min) * math.random()
+    end
+    
+    -- плавное движение (smooth step)
+    function utility:SmoothStep(from, to, t)
+        t = self:Clamp(t, 0, 1)
+        t = t * t * (3 - 2 * t)
+        return self:Lerp(from, to, t)
+    end
+    
+    -- симуляция выстрела
+    function utility:SimulateShot()
+        -- 1) VirtualUser
+        local ok = false
+        pcall(function()
+            vars.vu = vars.vu or game:GetService("VirtualUser")
+            local cam = vars.ws.CurrentCamera
+            local cf = cam and cam.CFrame or CFrame.new()
+            vars.vu:Button1Down(Vector2.new(), cf)
+            task.wait(0.02)
+            vars.vu:Button1Up(Vector2.new(), cf)
+            ok = true
+        end)
+        if ok then return true end
+        
+        -- 2) Эксплойт API
+        local env = rawget(_G, "getgenv") and getgenv() or _G
+        local click = rawget(env, "mouse1click")
+        if type(click) == "function" then
+            pcall(click)
+            return true
+        end
+        
+        -- 3) VirtualInputManager
+        pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            local pos = vars.uis:GetMouseLocation()
+            vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
+            task.wait(0.02)
+            vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+            ok = true
+        end)
+        
+        return ok
+    end
+    
+    -- получение ближайшей части тела к позиции
+    function utility:GetClosestBodyPart(character, position)
+        if not character or not position then return nil end
+        local closestPart = nil
+        local closestDist = math.huge
+        
+        for _, part in ipairs(character:GetChildren()) do
+            if part:IsA("BasePart") then
+                local dist = (part.Position - position).Magnitude
+                if dist < closestDist then
+                    closestDist = dist
+                    closestPart = part
+                end
+            end
+        end
+        
+        return closestPart, closestDist
+    end
+    
+    -- создание луча
+    function utility:CreateRay(origin, direction, params)
+        if not origin or not direction then return nil end
+        params = params or RaycastParams.new()
+        return vars.ws:Raycast(origin, direction, params)
+    end
+    
+    -- получение направления к цели
+    function utility:GetDirection(from, to)
+        if not from or not to then return Vector3.zero end
+        local direction = (to - from)
+        return self:SafeUnit(direction)
+    end
+    
+    -- экспорт утилит глобально для использования в других блоках
+    _G.RebuildUtility = utility
+end
+-- utility framework end
+
 -- tabs start (ordered before Settings)
 do
     -- Rage tab start
@@ -166,54 +600,25 @@ do
                 charConn = nil,
             }
 
-            -- утилиты
-            local function validate_client(player)
-                if not player or player == vars.lp then return nil end
-                local character = player.Character
-                if not character then return nil end
-                local humanoid = character:FindFirstChildOfClass("Humanoid")
-                local rootpart = character:FindFirstChild("HumanoidRootPart")
-                if not humanoid or not rootpart or humanoid.Health <= 0 then return nil end
-                return character, humanoid, rootpart
+            -- debug logger (gated)
+            local lastLogAt = 0
+            local function dbg(...)
+                if config.Debug and config.Debug.Enabled then
+                    print(...)
+                end
+            end
+            local function dbg_throttled(...)
+                if not (config.Debug and config.Debug.Enabled) then return end
+                local now = os.clock()
+                local th = (config.Debug.Throttle or 0.5)
+                if now - lastLogAt >= th then
+                    lastLogAt = now
+                    print(...)
+                end
             end
 
-            
-
-            local function to_screen_point(position)
-                local pos, onScreen = vars.camera:WorldToViewportPoint(position)
-                return pos, onScreen
-            end
-
-            local function is_forcefield(player)
-                local char = player and player.Character
-                if not char then return false end
-                return char:FindFirstChildOfClass("ForceField") ~= nil
-            end
-
-            local function is_knocked(player)
-                -- замена на BodyEffects["K.O"].Value
-                local char = player and player.Character
-                if not char then return false end
-                local bodyEffects = char:FindFirstChild("BodyEffects")
-                if not bodyEffects then return false end
-                local ko = bodyEffects:FindFirstChild("K.O")
-                if not ko then return false end
-                local ok, val = pcall(function()
-                    return ko.Value
-                end)
-                return ok and val == true
-            end
-
-            local raycastParams = RaycastParams.new()
-            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-
-            local function is_visible(worldPos, targetCharacter)
-                if not worldPos then return false end
-                local origin = vars.camera.CFrame.Position
-                raycastParams.FilterDescendantsInstances = {vars.lp.Character, targetCharacter}
-                local result = vars.ws:Raycast(origin, (worldPos - origin), raycastParams)
-                return result == nil
-            end
+            -- используем глобальные утилиты
+            local utility = _G.RebuildUtility
 
             local function disconnect_target_events()
                 if state.humanoidConn then state.humanoidConn:Disconnect() state.humanoidConn = nil end
@@ -244,24 +649,24 @@ do
                                     state.pass = true
                                     disconnect_target_events()
                                     if prev then
-                                        print("[Targeting] Cleared (Death):", player.Name)
+                                        dbg("[Targeting] Cleared (Death):", player.Name)
                                     end
                                 else
                                     state.pass = false
                                     -- не очищаем Player; ждём нового CharacterAdded
-                                    print("[Targeting] Died (await respawn):", player.Name)
+                                    dbg("[Targeting] Died (await respawn):", player.Name)
                                 end
                             end)
                             state.pass = true
-                            print("[Targeting] Respawn detected, reattached:", player.Name)
+                            dbg("[Targeting] Respawn detected, reattached:", player.Name)
                         else
-                            print("[Targeting] Respawn missing humanoid/hrp:", player.Name)
+                            dbg("[Targeting] Respawn missing humanoid/hrp:", player.Name)
                         end
                     end)
                 end)
 
                 -- первичное подключение к текущему humanoid, если есть
-                local character, humanoid = validate_client(player)
+                local character, humanoid = utility:ValidateClient(player)
                 if character and humanoid then
                     state.humanoidConn = humanoid.Died:Connect(function()
                         if config.Targeting.ResetOn and config.Targeting.ResetOn.death then
@@ -270,11 +675,11 @@ do
                             state.pass = true
                             disconnect_target_events()
                             if prev then
-                                print("[Targeting] Cleared (Death):", player.Name)
+                                dbg("[Targeting] Cleared (Death):", player.Name)
                             end
                         else
                             state.pass = false
-                            print("[Targeting] Died (await respawn):", player.Name)
+                            dbg("[Targeting] Died (await respawn):", player.Name)
                         end
                     end)
                 end
@@ -289,7 +694,7 @@ do
 
             function targeting.get()
                 if not config.Targeting.Player then return nil end
-                local character, humanoid, rootpart = validate_client(config.Targeting.Player)
+                local character, humanoid, rootpart = utility:ValidateClient(config.Targeting.Player)
                 if not character then return nil end
                 return {
                     player = config.Targeting.Player,
@@ -307,9 +712,9 @@ do
                 disconnect_target_events()
                 -- debug: target cleared
                 if prev then
-                    print("[Targeting] Cleared:", prev.Name)
+                    dbg("[Targeting] Cleared:", prev.Name)
                 else
-                    print("[Targeting] Cleared: none")
+                    dbg("[Targeting] Cleared: none")
                 end
             end
 
@@ -324,20 +729,21 @@ do
                 local bestDist = distance or config.Targeting.Fov or math.huge
                 local best
                 local knocked_log = {}
+                local mouse = vars.lp:GetMouse()
 
                 for _, plr in ipairs(vars.players:GetPlayers()) do
                     if plr ~= vars.lp then
-                        local character, humanoid, rootpart = validate_client(plr)
+                        local character, humanoid, rootpart = utility:ValidateClient(plr)
                         if character and humanoid and rootpart then
-                            local sp, onScreen = to_screen_point(rootpart.Position)
+                            local sp, onScreen = utility:ToScreen(rootpart.Position)
                             if onScreen then
                                 -- применяем Skip-фильтры до расчета дистанции
                                 local skip = false
-                                if config.Targeting.Checks.forcefield and is_forcefield(plr) then
+                                if config.Targeting.Checks.forcefield and utility:HasForcefield(plr) then
                                     skip = true
                                 end
                                 if not skip then
-                                    local ko = is_knocked(plr)
+                                    local ko = utility:IsKnocked(plr)
                                     if ko and config.Targeting.Checks.knocked then
                                         table.insert(knocked_log, plr.Name)
                                     end
@@ -349,16 +755,14 @@ do
                                     end
                                 end
                                 if not skip and config.Targeting.Checks.visible then
-                                    if not is_visible(rootpart.Position, character) then
+                                    if not utility:IsVisible(rootpart.Position, character) then
                                         skip = true
                                     end
                                 end
                                 if not skip then
-                                    local m = vars.vec2(sp.X, sp.Y)
-                                    local mouse = vars.lp:GetMouse()
-                                    local d = (m - vars.vec2(mouse.X, mouse.Y)).Magnitude
-                                    if d < bestDist then
-                                        bestDist = d
+                                    local dist = utility:GetMouseDistance(sp)
+                                    if dist < bestDist then
+                                        bestDist = dist
                                         best = plr
                                     end
                                 end
@@ -369,7 +773,7 @@ do
 
                 if #knocked_log > 0 then
                     -- это лог поиска, не ResetOn: чтобы не путать с очисткой текущей цели
-                    print("[Targeting] SearchSkipped(KO):", table.concat(knocked_log, ", "))
+                    dbg_throttled("[Targeting] SearchSkipped(KO):", table.concat(knocked_log, ", "))
                 end
 
                 if best then
@@ -380,7 +784,7 @@ do
                     -- debug: target selected
                     local name = best and best.Name or "?"
                     local dist = bestDist and math.floor(bestDist) or -1
-                    print("[Targeting] Selected:", name, "Dist:", dist)
+                    dbg("[Targeting] Selected:", name, "Dist:", dist)
                 end
 
                 return config.Targeting.Player
@@ -392,7 +796,7 @@ do
                     return state.pass
                 end
 
-                local character, humanoid, rootpart = validate_client(config.Targeting.Player)
+                local character, humanoid, rootpart = utility:ValidateClient(config.Targeting.Player)
                 if not character then
                     state.pass = false
                     return state.pass
@@ -400,9 +804,9 @@ do
 
                 local failed = false
                 local reason_knocked = false
-                local knocked_now = is_knocked(config.Targeting.Player)
+                local knocked_now = utility:IsKnocked(config.Targeting.Player)
 
-                if config.Targeting.Checks.forcefield and is_forcefield(config.Targeting.Player) then
+                if config.Targeting.Checks.forcefield and utility:HasForcefield(config.Targeting.Player) then
                     failed = true
                 end
 
@@ -412,7 +816,7 @@ do
                 end
 
                 if config.Targeting.Checks.visible then
-                    local ok = is_visible(rootpart.Position, character)
+                    local ok = utility:IsVisible(rootpart.Position, character)
                     if not ok then failed = true end
                 end
 
@@ -654,6 +1058,8 @@ do
                     end
                 })
 
+                
+
                 -- Knocked -> Checks.knocked
                 right:toggle({
                     name = "Knocked",
@@ -713,10 +1119,16 @@ do
                 Enabled = false,
                 Type = "Sets",
                 Sets = { X = 0, Y = 0, Z = 0 },
+                DivisionMul = 1,
+            }
+            -- Tweaks defaults
+            config.Tweaks = config.Tweaks or {
+                AutoAir = false,
+                AutoShoot = false,
             }
 
-            local aim_col, calc_col = rage_tab:multi_section({
-                names = {"Aimbot", "Calculate"}
+            local aim_col, calc_col, tweaks_col = rage_tab:multi_section({
+                names = {"Aimbot", "Calculate", "Tweaks"}
             })
 
             -- Aimbot Enabled
@@ -733,7 +1145,7 @@ do
             local aim_dep = aim_col:dependency_box()
             aim_dep:setup_dependencies({ { aim_toggle, true } })
 
-            -- Показ луча предикшена (видим только при Enabled)
+            -- Показ луча предикшена (видим только при Enabled) 
             aim_dep:toggle({
                 name = "ShowPrediction",
                 flag = "aim_show_pred",
@@ -787,10 +1199,14 @@ do
                 })
             end
 
-            -- Resolver UI (НЕ зависит от Aimbot Enabled)
+            -- Resolver UI (теперь зависит от Aimbot Enabled)
             do
-                local res_toggle = aim_col:toggle({
-                    name = "Resolver",
+                -- контекстный лейбл
+                aim_dep:label({ name = "Resolver" })
+
+                -- тогл Resolver скрыт, пока Aimbot Enabled = false
+                local res_toggle = aim_dep:toggle({
+                    name = "Enabled",
                     flag = "aim_resolver_enabled",
                     default = (config.Aimbot.Resolver and config.Aimbot.Resolver.Enabled) or false,
                     callback = function(on)
@@ -798,8 +1214,11 @@ do
                         config.Aimbot.Resolver.Enabled = on
                     end
                 })
-                local res_dep = aim_col:dependency_box()
+
+                -- настройки Resolver видимы только при включённом самом Resolver
+                local res_dep = aim_dep:dependency_box()
                 res_dep:setup_dependencies({ { res_toggle, true } })
+
                 -- компактный маппинг: полные имена в UI -> короткие ключи в конфиге
                 local map = { Velocity = "Velocity", MoveDirection = "MoveDir", LookVector = "LookVec", Recalculate = "Recalc", CalculateCFrame = "CalcCFrame" }
                 local items = {"Velocity","MoveDirection","LookVector","Recalculate","CalculateCFrame"}
@@ -810,6 +1229,7 @@ do
                     or (current_mode == "Recalc" and "Recalculate")
                     or (current_mode == "CalcCFrame" and "CalculateCFrame")
                     or "Velocity"
+
                 res_dep:dropdown({
                     name = "Type",
                     flag = "aim_resolver_type",
@@ -839,10 +1259,25 @@ do
                 local type_dd = dep_pred:dropdown({
                     name = "Type",
                     flag = "aim_pred_type",
-                    items = {"Sets"},
+                    items = {"Sets","Division","Auto"},
                     default = config.Aimbot.Prediction.Type or "Sets",
                     callback = function(sel)
                         config.Aimbot.Prediction.Type = sel
+                    end
+                })
+
+                -- Division settings (Multiplier)
+                local dep_div = dep_pred:dependency_box()
+                dep_div:setup_dependencies({ { type_dd, "Division" } })
+                dep_div:slider({
+                    name = "Mul",
+                    flag = "aim_pred_div_mul",
+                    min = 0,
+                    max = 0.2,
+                    default = (config.Aimbot.Prediction.DivisionMul and math.min(config.Aimbot.Prediction.DivisionMul, 0.2)) or 0.05,
+                    interval = 0.001,
+                    callback = function(v)
+                        config.Aimbot.Prediction.DivisionMul = (_G.RebuildUtility and _G.RebuildUtility:Clamp(v, 0, 0.2)) or math.max(0, math.min(0.2, v))
                     end
                 })
 
@@ -882,32 +1317,57 @@ do
                     end
                 })
             end
+
+            -- Tweaks UI
+            do
+                tweaks_col:toggle({
+                    name = "AutoAir",
+                    flag = "tw_autoair",
+                    default = (config.Tweaks and config.Tweaks.AutoAir) or false,
+                    callback = function(on)
+                        config.Tweaks = config.Tweaks or {}
+                        config.Tweaks.AutoAir = on
+                    end
+                })
+                tweaks_col:toggle({
+                    name = "AutoShoot",
+                    flag = "tw_autoshoot",
+                    default = (config.Tweaks and config.Tweaks.AutoShoot) or false,
+                    callback = function(on)
+                        config.Tweaks = config.Tweaks or {}
+                        config.Tweaks.AutoShoot = on
+                    end
+                })
+            end
         end
 
         -- Общие функции Resolver для Aimbot (доступны всем подпроцессам)
         -- хранение предыдущей позиции для режимов Recalc/CalcCFrame
         local resolver_state = { lastPos = nil, lastTick = 0 }
+        local utility = _G.RebuildUtility
+        
         local function get_resolved_velocity(part, humanoid)
             local mode = (config.Aimbot.Resolver and config.Aimbot.Resolver.Mode) or "Velocity"
             if not (config.Aimbot.Resolver and config.Aimbot.Resolver.Enabled) then
-                return part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+                return utility:GetVelocity(part)
             end
             if mode == "Velocity" then
-                return part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+                return utility:GetVelocity(part)
             elseif mode == "MoveDir" then
                 if humanoid then
                     local md = humanoid.MoveDirection or vars.vector3()
                     local ws = humanoid.WalkSpeed or 16
                     return md * ws
                 end
-                return part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+                return utility:GetVelocity(part)
             elseif mode == "LookVec" then
-                local mag = (part.AssemblyLinearVelocity or part.Velocity or vars.vector3()).Magnitude
+                local vel = utility:GetVelocity(part)
+                local mag = vel.Magnitude
                 return part.CFrame.LookVector * mag
             elseif mode == "Recalc" or mode == "CalcCFrame" then
                 local now = os.clock()
                 local pos = part.Position
-                local v = part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+                local v = utility:GetVelocity(part)
                 if resolver_state.lastPos and resolver_state.lastTick and resolver_state.lastTick > 0 then
                     local dt = now - resolver_state.lastTick
                     if dt > 0 then
@@ -918,7 +1378,78 @@ do
                 resolver_state.lastTick = now
                 return v
             end
-            return part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+            return utility:GetVelocity(part)
+        end
+
+        -- Prediction function
+        local function get_prediction_position(part, humanoid)
+            if not part then return nil end
+            local velocity = get_resolved_velocity(part, humanoid)
+            if not velocity then velocity = vars.vector3() end
+
+            if config.Aimbot.Prediction.Enabled then
+                local ptype = config.Aimbot.Prediction.Type or "Sets"
+                if ptype == "Sets" then
+                    local sx = config.Aimbot.Prediction.Sets.X or 0
+                    local sy = config.Aimbot.Prediction.Sets.Y or 0
+                    local sz = config.Aimbot.Prediction.Sets.Z or 0
+                    return part.Position + vars.vector3(sx, sy, sz)
+                elseif ptype == "Division" then
+                    local mul = config.Aimbot.Prediction.DivisionMul or 1
+                    return utility:PredictPosition(part, velocity, mul)
+                end
+            end
+            return part.Position
+        end
+
+        -- Auto Prediction helpers (ping -> multiplier). Пользователь не настраивает.
+        -- формат: { ping_ms, mul }
+        local predictionTable = {
+            {20, 0.08960952},
+            {30, 0.11252476},
+            {50, 0.13544},
+            {65, 0.1264236},
+            {70, 0.12533},
+            {80, 0.13934},
+            {100, 0.141987},
+            {110, 0.144634},
+            {120, 0.147281},
+            {130, 0.149928},
+            {140, 0.152575},
+            {150, 0.155222},
+            {160, 0.157869},
+            {170, 0.160516},
+            {180, 0.163163},
+            {190, 0.16581},
+            {200, 0.168457},
+            {210, 0.171104},
+            {220, 0.173751},
+            {230, 0.176398},
+            {240, 0.179045},
+            {250, 0.181692},
+            {260, 0.184339},
+            {270, 0.186986},
+            {280, 0.189633},
+            {290, 0.19228},
+            {300, 0.194927},
+        }
+
+        local function get_current_ping_ms()
+            return utility:GetPing()
+        end
+
+        local function get_auto_mul(ping_ms)
+            local bestMul, bestDiff = 0, math.huge
+            for i = 1, #predictionTable do
+                local p = predictionTable[i][1]
+                local m = predictionTable[i][2]
+                local d = math.abs((ping_ms or 0) - p)
+                if d < bestDiff then
+                    bestDiff = d
+                    bestMul = m
+                end
+            end
+            return bestMul
         end
 
         -- aimbot namecall hook start (по умолчанию выключен через UseNamecall=false)
@@ -930,7 +1461,7 @@ do
                 local tg = TargetingAPI.get()
                 if not tg then return nil end
                 local sel = (config.Aimbot.SelectedPart or "Head")
-                local part = (tg.character and tg.character:FindFirstChild(sel)) or tg.rootpart
+                local part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
                 return part and part.Position or nil
             end
 
@@ -959,13 +1490,14 @@ do
 
         -- aimbot __index hook start (Silent Aim совместимый)
         do
+            local utility = _G.RebuildUtility
             local function get_target_part()
                 if not (config.Aimbot and config.Aimbot.Enabled) then return nil end
                 if not TargetingAPI or not TargetingAPI.get then return nil end
                 local tg = TargetingAPI.get()
                 if not tg then return nil end
                 local sel = (config.Aimbot.SelectedPart or "Head")
-                local part = (tg.character and tg.character:FindFirstChild(sel)) or tg.rootpart
+                local part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
                 return part
             end
 
@@ -975,25 +1507,40 @@ do
             pcall(function()
                 __idx = hookmetamethod(game, "__index", function(t, k)
                     if t and typeof(t) == "Instance" and t:IsA("Mouse") and (k == "Hit" or k == "Target") then
+                        -- работаем только когда Aimbot.Enabled включён
+                        if not (config.Aimbot and config.Aimbot.Enabled) then
+                            return __idx(t, k)
+                        end
                         local tg = TargetingAPI and TargetingAPI.get and TargetingAPI.get() or nil
                         local part = nil
                         local humanoid = nil
                         if tg then
                             local sel = (config.Aimbot.SelectedPart or "Head")
-                            part = (tg.character and tg.character:FindFirstChild(sel)) or tg.rootpart
+                            part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
                             humanoid = tg.humanoid
                         end
                         if part then
                             if k == "Hit" then
                                 local pos = part.Position
-                                -- применяем предикшн Sets при включении
+                                -- применяем предикшн при включении
                                 local pred = config.Aimbot.Prediction
-                                if pred and pred.Enabled and pred.Type == "Sets" then
-                                    local vel = get_resolved_velocity(part, humanoid)
-                                    local sx = tonumber(pred.Sets and pred.Sets.X) or 0
-                                    local sy = tonumber(pred.Sets and pred.Sets.Y) or 0
-                                    local sz = tonumber(pred.Sets and pred.Sets.Z) or 0
-                                    pos = pos + vars.vector3(vel.X * sx, vel.Y * sy, vel.Z * sz)
+                                if pred and pred.Enabled then
+                                    if pred.Type == "Sets" then
+                                        local vel = get_resolved_velocity(part, humanoid)
+                                        local sx = tonumber(pred.Sets and pred.Sets.X) or 0
+                                        local sy = tonumber(pred.Sets and pred.Sets.Y) or 0
+                                        local sz = tonumber(pred.Sets and pred.Sets.Z) or 0
+                                        pos = pos + vars.vector3(vel.X * sx, vel.Y * sy, vel.Z * sz)
+                                    elseif pred.Type == "Division" then
+                                        local vel = get_resolved_velocity(part, humanoid)
+                                        local mul = utility:Clamp(tonumber(config.Aimbot.Prediction.DivisionMul) or 0.05, 0, 0.2)
+                                        pos = utility:PredictPosition(part, vel, mul)
+                                    elseif pred.Type == "Auto" then
+                                        local vel = get_resolved_velocity(part, humanoid)
+                                        local ping = get_current_ping_ms()
+                                        local mul = get_auto_mul(ping)
+                                        pos = utility:PredictPosition(part, vel, mul)
+                                    end
                                 end
                                 return CFrame.new(pos)
                             else -- k == "Target"
@@ -1018,11 +1565,14 @@ do
             end
 
             local function ensure_beam()
-                if vis.beam and vis.a0 and vis.a1 and vis.part then return true end
+                -- валидируем каждый кадр, т.к. после смерти Character меняется
                 local hand = find_hand()
-                if not hand or not hand:IsA("BasePart") then return false end
+                if not hand or not hand:IsA("BasePart") then
+                    if vis.beam then vis.beam.Enabled = false end
+                    return false
+                end
 
-                -- attachment on hand
+                -- attachment on hand (всегда убеждаемся, что он на актуальной руке)
                 local a0 = hand:FindFirstChild("RB_Att0")
                 if not a0 then
                     a0 = Instance.new("Attachment")
@@ -1062,13 +1612,22 @@ do
                     beam.Enabled = false
                     beam.Parent = a0
                 else
+                    -- перепривязка к новой руке/точке при каждом кадре
                     beam.Attachment0 = a0
                     beam.Attachment1 = a1
+                    if beam.Parent ~= a0 then beam.Parent = a0 end
                 end
 
                 vis.a0, vis.a1, vis.part, vis.beam = a0, a1, part, beam
                 return true
             end
+
+            -- перепривязка визуала при респавне локального игрока
+            vars.lp.CharacterAdded:Connect(function()
+                -- сбросим кэш, чтобы ensure_beam заново привязал к новой руке
+                vis.a0 = nil
+                if vis.beam then vis.beam.Enabled = false end
+            end)
 
             local function get_predicted_pos_for_visual()
                 if not (config.Aimbot and config.Aimbot.Enabled and config.Aimbot.ShowPrediction) then return nil end
@@ -1076,18 +1635,9 @@ do
                 local tg = TargetingAPI.get()
                 if not tg then return nil end
                 local sel = (config.Aimbot.SelectedPart or "Head")
-                local part = (tg.character and tg.character:FindFirstChild(sel)) or tg.rootpart
+                local part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
                 if not part then return nil end
-                local pos = part.Position
-                local pred = config.Aimbot.Prediction
-                if pred and pred.Enabled and pred.Type == "Sets" then
-                    local vel = get_resolved_velocity(part, tg.humanoid)
-                    local sx = tonumber(pred.Sets and pred.Sets.X) or 0
-                    local sy = tonumber(pred.Sets and pred.Sets.Y) or 0
-                    local sz = tonumber(pred.Sets and pred.Sets.Z) or 0
-                    pos = pos + vars.vector3(vel.X * sx, vel.Y * sy, vel.Z * sz)
-                end
-                return pos
+                return get_prediction_position(part, tg.humanoid)
             end
 
             run.RenderStepped:Connect(function()
@@ -1103,8 +1653,96 @@ do
                     if vis.beam then vis.beam.Enabled = false end
                 end
             end)
+
+            -- Tweaks AutoShoot: держим LMB/Activate при наличии оружия и цели
+            local autos = { busy = false, last = 0 }
+            run.RenderStepped:Connect(function()
+                if not (config.Tweaks and config.Tweaks.AutoShoot) then return end
+                if autos.busy or (os.clock() - autos.last) < 0.1 then return end
+                -- нужна валидная цель
+                local tgt = TargetingAPI and TargetingAPI.get and TargetingAPI.get()
+                if not tgt or not tgt.character or not tgt.rootpart then return end
+                local ok_checks = (targeting and targeting.update_checks and targeting.update_checks())
+                if ok_checks == false then return end
+                local ch = vars.lp and vars.lp.Character
+                if not ch then return end
+                local tool = utility:GetTool(ch)
+                if not tool then return end
+                autos.busy = true
+                autos.last = os.clock()
+                if not utility:ActivateTool(tool) then
+                    utility:SimulateShot()
+                end
+                task.delay(0.05, function() autos.busy = false end)
+            end)
         end
         -- aimbot prediction beam end
+
+        -- tweaks autoair start
+        do
+            -- Проверка по вертикальной скорости цели и активация оружия
+            local aa = { busy = false, lastShot = 0 }
+
+            local function simulate_shot_legacy()
+                -- 1) VirtualUser (надежнее для игр с проверками ввода)
+                local ok = false
+                pcall(function()
+                    vars.vu = vars.vu or game:GetService("VirtualUser")
+                    local cam = vars.ws.CurrentCamera
+                    local cf = cam and cam.CFrame or CFrame.new()
+                    vars.vu:Button1Down(Vector2.new(), cf)
+                    task.wait(0.02)
+                    vars.vu:Button1Up(Vector2.new(), cf)
+                    ok = true
+                end)
+                if ok then return true end
+
+                -- 2) Эксплойт API: mouse1click
+                local env = rawget(_G, "getgenv") and getgenv() or _G
+                local click = rawget(env, "mouse1click")
+                if type(click) == "function" then
+                    pcall(click)
+                    return true
+                end
+
+                -- 3) VirtualInputManager
+                pcall(function()
+                    local vim = game:GetService("VirtualInputManager")
+                    local pos = vars.uis:GetMouseLocation()
+                    vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
+                    task.wait(0.02)
+                    vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+                    ok = true
+                end)
+                return ok
+            end
+
+            run.RenderStepped:Connect(function()
+                if not (config.Tweaks and config.Tweaks.AutoAir) then return end
+                local tgt = TargetingAPI and TargetingAPI.get and TargetingAPI.get()
+                if not tgt then return end
+                if not tgt.character or not tgt.rootpart then return end
+                
+                -- проверка валидности цели
+                local ok_checks = (targeting and targeting.update_checks and targeting.update_checks())
+                if ok_checks == false then return end
+
+                local vel = utility:GetVelocity(tgt.rootpart)
+                local vy = vel and vel.Y or 0
+
+                if vy > 15 then
+                    if not aa.busy and (os.clock() - aa.lastShot) > 0.12 then
+                        aa.busy = true
+                        aa.lastShot = os.clock()
+                        utility:SimulateShot()
+                        task.delay(0.1, function()
+                            aa.busy = false
+                        end)
+                    end
+                end
+            end)
+        end
+        -- tweaks autoair end
     end
     -- Rage tab end
 
