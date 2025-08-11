@@ -5032,9 +5032,22 @@ function library:dependency_box(options)
 		Parent = self.holder,
 		Name = "dependency_box",
 		BackgroundTransparency = 1,
-		Size = dim2(1, 0, 0, 0),
+		Size = dim2(1, -8, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BorderSizePixel = 0,
+	})
+
+	library:create("UIPadding", {
+		Parent = dependency_holder,
+		PaddingLeft = dim(0, 12),
+		PaddingTop = dim(0, 4),
+		PaddingBottom = dim(0, 4),
+	})
+
+	library:create("UIListLayout", {
+		Parent = dependency_holder,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = dim(0, 4),
 	})
 
 	cfg.holder = dependency_holder
@@ -5080,30 +5093,12 @@ function library:dependency_box(options)
 	-- добавляем в список dependency boxes
 	insert(library.dependency_boxes, cfg)
 
-	-- переопределяем методы для добавления элементов
-	local original_holder = self.holder
-	self.holder = dependency_holder
+	-- создаем метатаблицу для dependency box
+	setmetatable(cfg, library)
+	cfg.holder = dependency_holder
+	cfg.right_holder = self.right_holder
 
-	return setmetatable(cfg, {
-		__index = function(t, k)
-			if library[k] then
-				return function(self, ...)
-					-- восстанавливаем контекст для создания элемента
-					local temp_holder = library.holder
-					library.holder = dependency_holder
-					
-					local element = library[k](self, ...)
-					insert(cfg.elements, element)
-					
-					-- возвращаем оригинальный holder
-					library.holder = temp_holder
-					
-					return element
-				end
-			end
-			return rawget(t, k)
-		end
-	})
+	return cfg
 end
 -- dependency system end
 
