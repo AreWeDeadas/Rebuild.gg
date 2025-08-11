@@ -1,0 +1,1385 @@
+loadstring(game:HttpGet("https://pastebin.com/raw/gimbTwW1"))() -- ac bypass just dont touch or replace
+local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/%D0%BC2"))()
+
+-- compatibility shim start
+-- safe cloneref fallback (без прямого обращения к getgenv для линтера)
+local getgenv_fn = rawget(_G, "getgenv")
+local env = type(getgenv_fn) == "function" and (getgenv_fn() or _G) or _G
+local _cloneref = rawget(env, "cloneref")
+local function safe_cloneref(obj)
+    if type(_cloneref) == "function" then
+        local ok, res = pcall(_cloneref, obj)
+        if ok then return res end
+    end
+    return obj
+end
+
+-- alias primitives if library didn't export them
+local vec2, vec3 = Vector2.new, Vector3.new
+local dim, rect, cfr = UDim.new, Rect.new, CFrame.new
+local angle = CFrame.Angles
+local dim_offset = UDim2.fromOffset
+
+local color = Color3.new
+local rgb = Color3.fromRGB
+local numseq = NumberSequence.new
+local numkey = NumberSequenceKeypoint.new
+
+-- cached services with cloneref
+local uis = safe_cloneref(game:GetService("UserInputService"))
+local players = safe_cloneref(game:GetService("Players"))
+local ws = safe_cloneref(game:GetService("Workspace"))
+local http_service = safe_cloneref(game:GetService("HttpService"))
+local gui_service = safe_cloneref(game:GetService("GuiService"))
+local lighting = safe_cloneref(game:GetService("Lighting"))
+local run = safe_cloneref(game:GetService("RunService"))
+local stats = safe_cloneref(game:GetService("Stats"))
+local coregui = safe_cloneref(game:GetService("CoreGui"))
+local debris = safe_cloneref(game:GetService("Debris"))
+local tween_service = safe_cloneref(game:GetService("TweenService"))
+local sound_service = safe_cloneref(game:GetService("SoundService"))
+local starter_gui = safe_cloneref(game:GetService("StarterGui"))
+local rs_service = safe_cloneref(game:GetService("ReplicatedStorage"))
+
+-- frequently used math shortcuts
+local max, min, abs, floor, ceil = math.max, math.min, math.abs, math.floor, math.ceil
+local sin, cos, tan, pi, rad = math.sin, math.cos, math.tan, math.pi, math.rad
+local atan2, acos, sqrt, pow = math.atan2, math.acos, math.sqrt, math.pow
+
+-- player/camera
+local camera = ws.CurrentCamera
+lp = lp or players.LocalPlayer
+local gui_offset = safe_cloneref(gui_service):GetGuiInset().Y
+-- compatibility shim end
+
+-- кеширование часто используемых переменных
+local vars = {
+    rs = run,
+    uis = uis,
+    players = players,
+    ws = ws,
+    stats = stats,
+    camera = camera,
+    lp = lp,
+    vec2 = Vector2.new,
+    vec3 = Vector3.new,
+    cfr = CFrame.new,
+    math = math,
+    vector3 = Vector3.new,
+    color3 = Color3.new,
+}
+
+-- единый конфиг
+local config = {
+    Targeting = {
+        Keybind = Enum.KeyCode.Q,
+        Player = nil,
+        RefreshMs = 150,
+        Fov = 100,
+        Mode = "Sticky", -- Sticky | Cursor | Fov
+        FovShow = false,
+        FovColor = hex("#FFFFFF"),
+        AutoSelect = true,
+        Checks = {
+            visible = false,
+            knocked = false,
+            forcefield = false,
+        },
+        ResetOn = {
+            knocked = false,
+            death = false,
+        },
+        BindActive = false,
+    },
+}
+
+-- default theme override start
+do
+    -- применяем тему по умолчанию из пользовательского конфига
+    local function h(s)
+        return hex("#" .. s)
+    end
+
+    themes.preset.outline = h("866d77")
+    themes.preset.glow = h("4d494b")
+    themes.preset.high_contrast = h("8a8a8a")
+    themes.preset.text = h("dfdfdf")
+    themes.preset.inline = h("555555")
+    themes.preset.text_outline = h("000000")
+    themes.preset.low_contrast = h("474747")
+    themes.preset.accent = h("fda4c8")
+
+    -- начальное применение контраста (градиент низкий → высокий)
+    pcall(function()
+        library:update_theme(
+            "contrast",
+            rgbseq({
+                rgbkey(0, themes.preset.low_contrast),
+                rgbkey(1, themes.preset.high_contrast),
+            })
+        )
+    end)
+end
+-- default theme override end
+
+-- создание окна
+local window = library:window({
+    name = "fuckassScript - rebuild.gg - beta - closed " .. os.date("%b %d %Y"),
+    size = dim2(0, 900, 0, 600),
+    position = dim2(0, 500, 0, 300)
+})
+
+-- watermark
+local watermark = library:watermark({
+    default = "Rebuild - " .. os.date("%H:%M:%S")
+})
+
+-- ensure hidden by default (unless enabled via config later)
+pcall(function()
+    if watermark and watermark.set_visible then
+        watermark.set_visible(false)
+    end
+end)
+if library and library.keybind_list_frame then
+    library.keybind_list_frame.Visible = false
+end
+
+
+-- tabs start (ordered before Settings)
+do
+    -- Rage tab start
+    local rage_tab = window:tab({ name = "Rage" })
+    -- общий указатель для доступа к таргетингу из других блоков (например, Aimbot hooks)
+    local TargetingAPI = nil
+    do
+        -- targeting system start
+        do
+            -- кеш уже определён вверху в таблице vars
+
+            -- конфиг используется из единой таблицы config.Targeting
+
+            -- внутреннее состояние
+            local state = {
+                time = os.clock(),
+                pass = true,
+                humanoidConn = nil,
+                charConn = nil,
+            }
+
+            -- утилиты
+            local function validate_client(player)
+                if not player or player == vars.lp then return nil end
+                local character = player.Character
+                if not character then return nil end
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                local rootpart = character:FindFirstChild("HumanoidRootPart")
+                if not humanoid or not rootpart or humanoid.Health <= 0 then return nil end
+                return character, humanoid, rootpart
+            end
+
+            
+
+            local function to_screen_point(position)
+                local pos, onScreen = vars.camera:WorldToViewportPoint(position)
+                return pos, onScreen
+            end
+
+            local function is_forcefield(player)
+                local char = player and player.Character
+                if not char then return false end
+                return char:FindFirstChildOfClass("ForceField") ~= nil
+            end
+
+            local function is_knocked(player)
+                -- замена на BodyEffects["K.O"].Value
+                local char = player and player.Character
+                if not char then return false end
+                local bodyEffects = char:FindFirstChild("BodyEffects")
+                if not bodyEffects then return false end
+                local ko = bodyEffects:FindFirstChild("K.O")
+                if not ko then return false end
+                local ok, val = pcall(function()
+                    return ko.Value
+                end)
+                return ok and val == true
+            end
+
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+            local function is_visible(worldPos, targetCharacter)
+                if not worldPos then return false end
+                local origin = vars.camera.CFrame.Position
+                raycastParams.FilterDescendantsInstances = {vars.lp.Character, targetCharacter}
+                local result = vars.ws:Raycast(origin, (worldPos - origin), raycastParams)
+                return result == nil
+            end
+
+            local function disconnect_target_events()
+                if state.humanoidConn then state.humanoidConn:Disconnect() state.humanoidConn = nil end
+                if state.charConn then state.charConn:Disconnect() state.charConn = nil end
+            end
+
+            local function attach_target_events(player)
+                disconnect_target_events()
+                if not player then return end
+
+                -- отслеживаем респавн персонажа: перепривязка к новому humanoid
+                state.charConn = player.CharacterAdded:Connect(function(newChar)
+                    -- подождём появление Humanoid и HRP
+                    task.spawn(function()
+                        local hum = nil
+                        local hrp = nil
+                        pcall(function()
+                            hum = newChar:WaitForChild("Humanoid", 5)
+                            hrp = newChar:WaitForChild("HumanoidRootPart", 5)
+                        end)
+                        if hum and hrp then
+                            if state.humanoidConn then state.humanoidConn:Disconnect() state.humanoidConn = nil end
+                            state.humanoidConn = hum.Died:Connect(function()
+                                if config.Targeting.ResetOn and config.Targeting.ResetOn.death then
+                                    -- мгновенный сброс цели на смерть
+                                    local prev = config.Targeting.Player
+                                    config.Targeting.Player = nil
+                                    state.pass = true
+                                    disconnect_target_events()
+                                    if prev then
+                                        print("[Targeting] Cleared (Death):", player.Name)
+                                    end
+                                else
+                                    state.pass = false
+                                    -- не очищаем Player; ждём нового CharacterAdded
+                                    print("[Targeting] Died (await respawn):", player.Name)
+                                end
+                            end)
+                            state.pass = true
+                            print("[Targeting] Respawn detected, reattached:", player.Name)
+                        else
+                            print("[Targeting] Respawn missing humanoid/hrp:", player.Name)
+                        end
+                    end)
+                end)
+
+                -- первичное подключение к текущему humanoid, если есть
+                local character, humanoid = validate_client(player)
+                if character and humanoid then
+                    state.humanoidConn = humanoid.Died:Connect(function()
+                        if config.Targeting.ResetOn and config.Targeting.ResetOn.death then
+                            local prev = config.Targeting.Player
+                            config.Targeting.Player = nil
+                            state.pass = true
+                            disconnect_target_events()
+                            if prev then
+                                print("[Targeting] Cleared (Death):", player.Name)
+                            end
+                        else
+                            state.pass = false
+                            print("[Targeting] Died (await respawn):", player.Name)
+                        end
+                    end)
+                end
+            end
+
+            -- локальный модуль
+            local targeting = {}
+
+            function targeting.get_config()
+                return config.Targeting
+            end
+
+            function targeting.get()
+                if not config.Targeting.Player then return nil end
+                local character, humanoid, rootpart = validate_client(config.Targeting.Player)
+                if not character then return nil end
+                return {
+                    player = config.Targeting.Player,
+                    character = character,
+                    humanoid = humanoid,
+                    rootpart = rootpart,
+                    pass = state.pass,
+                }
+            end
+
+            function targeting.clear()
+                local prev = config.Targeting.Player
+                config.Targeting.Player = nil
+                state.pass = true
+                disconnect_target_events()
+                -- debug: target cleared
+                if prev then
+                    print("[Targeting] Cleared:", prev.Name)
+                else
+                    print("[Targeting] Cleared: none")
+                end
+            end
+
+            -- экспорт API наружу
+            TargetingAPI = targeting
+
+            function targeting.set_bind_active(active)
+                config.Targeting.BindActive = active and true or false
+            end
+
+            function targeting.update_target(distance)
+                local bestDist = distance or config.Targeting.Fov or math.huge
+                local best
+                local knocked_log = {}
+
+                for _, plr in ipairs(vars.players:GetPlayers()) do
+                    if plr ~= vars.lp then
+                        local character, humanoid, rootpart = validate_client(plr)
+                        if character and humanoid and rootpart then
+                            local sp, onScreen = to_screen_point(rootpart.Position)
+                            if onScreen then
+                                -- применяем Skip-фильтры до расчета дистанции
+                                local skip = false
+                                if config.Targeting.Checks.forcefield and is_forcefield(plr) then
+                                    skip = true
+                                end
+                                if not skip then
+                                    local ko = is_knocked(plr)
+                                    if ko and config.Targeting.Checks.knocked then
+                                        table.insert(knocked_log, plr.Name)
+                                    end
+                                    -- если включен ResetOn.knocked, не берём нокнутых кандидатов даже без Skip
+                                    if (config.Targeting.ResetOn and config.Targeting.ResetOn.knocked) and ko then
+                                        skip = true
+                                    elseif config.Targeting.Checks.knocked and ko then
+                                        skip = true
+                                    end
+                                end
+                                if not skip and config.Targeting.Checks.visible then
+                                    if not is_visible(rootpart.Position, character) then
+                                        skip = true
+                                    end
+                                end
+                                if not skip then
+                                    local m = vars.vec2(sp.X, sp.Y)
+                                    local mouse = vars.lp:GetMouse()
+                                    local d = (m - vars.vec2(mouse.X, mouse.Y)).Magnitude
+                                    if d < bestDist then
+                                        bestDist = d
+                                        best = plr
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if #knocked_log > 0 then
+                    -- это лог поиска, не ResetOn: чтобы не путать с очисткой текущей цели
+                    print("[Targeting] SearchSkipped(KO):", table.concat(knocked_log, ", "))
+                end
+
+                if best then
+                    config.Targeting.Player = best
+                    attach_target_events(best)
+                    -- моментальная валидация/ResetOn сразу после выбора
+                    targeting.update_checks()
+                    -- debug: target selected
+                    local name = best and best.Name or "?"
+                    local dist = bestDist and math.floor(bestDist) or -1
+                    print("[Targeting] Selected:", name, "Dist:", dist)
+                end
+
+                return config.Targeting.Player
+            end
+
+            function targeting.update_checks()
+                if not config.Targeting.Player then
+                    state.pass = false
+                    return state.pass
+                end
+
+                local character, humanoid, rootpart = validate_client(config.Targeting.Player)
+                if not character then
+                    state.pass = false
+                    return state.pass
+                end
+
+                local failed = false
+                local reason_knocked = false
+                local knocked_now = is_knocked(config.Targeting.Player)
+
+                if config.Targeting.Checks.forcefield and is_forcefield(config.Targeting.Player) then
+                    failed = true
+                end
+
+                if config.Targeting.Checks.knocked and knocked_now then
+                    failed = true
+                    reason_knocked = true
+                end
+
+                if config.Targeting.Checks.visible then
+                    local ok = is_visible(rootpart.Position, character)
+                    if not ok then failed = true end
+                end
+
+                state.pass = not failed
+                -- ResetOn.knocked должен работать независимо от Skip-флага
+                if (config.Targeting.ResetOn and config.Targeting.ResetOn.knocked) and knocked_now then
+                    -- мгновенный сброс при нокдауне
+                    local prev = config.Targeting.Player
+                    config.Targeting.Player = nil
+                    state.pass = true
+                    disconnect_target_events()
+                    if prev then
+                        print("[Targeting] Cleared (Knocked):", prev.Name)
+                    end
+                end
+                return state.pass
+            end
+
+            -- FOV circle render helpers
+            function targeting.create_fov_circle()
+                -- уже создано
+                if state.fovGui and state.fovGui.gui then return end
+
+                local sg = Instance.new("ScreenGui")
+                sg.Name = "RB_FOV"
+                sg.IgnoreGuiInset = false
+                sg.DisplayOrder = 2147483647
+                sg.ResetOnSpawn = false
+                sg.Parent = coregui
+
+                local fr = Instance.new("Frame")
+                fr.Name = "Circle"
+                fr.BackgroundTransparency = 1
+                fr.BorderSizePixel = 0
+                fr.AnchorPoint = Vector2.new(0.5, 0.5)
+                fr.Parent = sg
+
+                local corner = Instance.new("UICorner")
+                corner.Parent = fr
+                corner.CornerRadius = UDim.new(0.5, 0)
+
+                local stroke = Instance.new("UIStroke")
+                stroke.Parent = fr
+                stroke.Thickness = 1.5
+                stroke.Color = config.Targeting.FovColor or Color3.new(1,1,1)
+                stroke.Transparency = 0
+
+                state.fovGui = {
+                    gui = sg,
+                    frame = fr,
+                    corner = corner,
+                    stroke = stroke,
+                }
+
+                -- первичное обновление размера/позиции
+                targeting.update_fov_circle()
+            end
+
+            function targeting.update_fov_circle()
+                if not (state.fovGui and state.fovGui.frame) then return end
+                local r = (config.Targeting.Fov or 100)
+                local d = r * 2
+                state.fovGui.frame.Size = UDim2.fromOffset(d, d)
+
+                -- позиция по центру на курсоре
+                local mouse = vars.lp:GetMouse()
+                local mx, my = mouse.X, mouse.Y
+                state.fovGui.frame.Position = UDim2.fromOffset(mx, my)
+            end
+
+            function targeting.think()
+                if not config.Targeting.BindActive then return targeting.get() end
+
+                -- всегда валидируем текущую цель, чтобы ResetOn.knocked работал во всех режимах
+                if config.Targeting.Player then
+                    targeting.update_checks()
+                end
+
+                local mode = config.Targeting.Mode
+                if mode == "Cursor" then
+                    -- авто: ближайший к курсору без ограничений (кадрово)
+                    targeting.update_target(math.huge)
+                elseif mode == "Fov" then
+                    -- авто: ближайший в пределах FOV (кадрово)
+                    targeting.update_target(config.Targeting.Fov or 100)
+                else
+                    -- Sticky: после валидации ничего не делаем (цель удерживается)
+                end
+
+                return targeting.get()
+            end
+
+            vars.players.PlayerRemoving:Connect(function(plr)
+                if config.Targeting.Player == plr then
+                    print("[Targeting] PlayerRemoving -> Cleared:", plr.Name)
+                    targeting.clear()
+                end
+            end)
+
+            -- UI блок Targeting
+            local left, right = rage_tab:multi_section({
+                names = {"Targeting", "Options"}
+            })
+            -- Toggle + Keybind (сверху секции)
+            local toggle = left:toggle({
+                name = "Enabled",
+                flag = "tg_enabled",
+                callback = function(on)
+                    targeting.set_bind_active(on)
+                    if not on then
+                        targeting.clear()
+                    end
+                end,
+            }):keybind({
+                key = config.Targeting.Keybind,
+                flag = "tg_key",
+                callback = function()
+                    if not config.Targeting.BindActive then return end
+                    if config.Targeting.Mode ~= "Sticky" then return end
+                    if config.Targeting.Player then
+                        -- повторное нажатие: отхват цели
+                        targeting.clear()
+                    else
+                        -- первое нажатие: взять цель в FOV
+                        local dist = (config.Targeting.Fov == 100) and math.huge or config.Targeting.Fov
+                        targeting.update_target(dist)
+                    end
+                end,
+            })
+
+            -- Mode dropdown (ниже тогла)
+            local mode_dd = left:dropdown({
+                name = "Mode",
+                flag = "tg_mode",
+                items = {"Sticky", "Cursor", "Fov"},
+                default = "Sticky",
+                callback = function(selected)
+                    config.Targeting.Mode = selected
+                    print("[Targeting] Mode:", selected)
+                    if selected ~= "Fov" then
+                        -- скрыть круг если выходим из режима Fov
+                        if state.fovGui and state.fovGui.gui then
+                            state.fovGui.gui.Parent = nil
+                        end
+                    else
+                        -- если включено отображение, создадим/покажем круг
+                        if config.Targeting.FovShow then
+                            if not state.fovGui or not state.fovGui.gui then
+                                targeting.create_fov_circle()
+                            else
+                                state.fovGui.gui.Parent = coregui
+                            end
+                        end
+                    end
+                end,
+            })
+
+            -- Dependency: Fov controls only for Fov mode
+            local fov_dep = left:dependency_box()
+            fov_dep:setup_dependencies({ { mode_dd, "Fov" } })
+            fov_dep:slider({
+                name = "Fov",
+                flag = "tg_fov",
+                min = 1,
+                max = 800,
+                default = config.Targeting.Fov,
+                interval = 1,
+                callback = function(v)
+                    config.Targeting.Fov = v
+                    if state.fovGui and state.fovGui.frame then
+                        local d = (config.Targeting.Fov or 100) * 2
+                        state.fovGui.frame.Size = UDim2.fromOffset(d, d)
+                        state.fovGui.corner.CornerRadius = UDim.new(0.5, 0)
+                    end
+                end,
+            })
+            local fov_show_toggle = fov_dep:toggle({
+                name = "Enabled",
+                flag = "tg_fov_show",
+                default = config.Targeting.FovShow,
+                callback = function(on)
+                    config.Targeting.FovShow = on
+                    if on then
+                        if not state.fovGui or not state.fovGui.gui then
+                            targeting.create_fov_circle()
+                        else
+                            state.fovGui.gui.Parent = coregui
+                        end
+                        if state.fovGui and state.fovGui.stroke then
+                            state.fovGui.stroke.Color = config.Targeting.FovColor
+                        end
+                    else
+                        if state.fovGui and state.fovGui.gui then
+                            state.fovGui.gui.Parent = nil
+                        end
+                    end
+                end
+            }):colorpicker({
+                name = "Color",
+                flag = "tg_fov_color",
+                color = config.Targeting.FovColor,
+                callback = function(color)
+                    config.Targeting.FovColor = color
+                    if state.fovGui and state.fovGui.stroke then
+                        state.fovGui.stroke.Color = color
+                    end
+                end
+            })
+
+            -- обновление состояния
+            run.RenderStepped:Connect(function()
+                targeting.think()
+                -- обновление круга FOV
+                if config.Targeting.BindActive and config.Targeting.Mode == "Fov" and config.Targeting.FovShow then
+                    if not state.fovGui or not state.fovGui.gui then
+                        targeting.create_fov_circle()
+                    end
+                    targeting.update_fov_circle()
+                else
+                    -- не удаляем, а просто скрываем
+                    if state.fovGui and state.fovGui.gui then
+                        state.fovGui.gui.Parent = nil
+                    end
+                end
+            end)
+
+            -- правая секция Options
+            do
+                -- Skip label
+                right:label({ name = "Skip" })
+
+                -- Covered -> Checks.visible
+                right:toggle({
+                    name = "Covered",
+                    flag = "tg_chk_visible",
+                    default = config.Targeting.Checks.visible,
+                    callback = function(on)
+                        config.Targeting.Checks.visible = on
+                    end
+                })
+
+                -- Knocked -> Checks.knocked
+                right:toggle({
+                    name = "Knocked",
+                    flag = "tg_chk_knocked",
+                    default = config.Targeting.Checks.knocked,
+                    callback = function(on)
+                        config.Targeting.Checks.knocked = on
+                    end
+                })
+
+                -- Forcefield -> Checks.forcefield
+                right:toggle({
+                    name = "Forcefield",
+                    flag = "tg_chk_force",
+                    default = config.Targeting.Checks.forcefield,
+                    callback = function(on)
+                        config.Targeting.Checks.forcefield = on
+                    end
+                })
+
+                -- ResetOn label
+                right:label({ name = "ResetOn" })
+
+                -- Reset on Knocked
+                right:toggle({
+                    name = "Knocked",
+                    flag = "tg_reset_knocked",
+                    default = config.Targeting.ResetOn.knocked,
+                    callback = function(on)
+                        config.Targeting.ResetOn.knocked = on
+                    end
+                })
+
+                -- Reset on Death
+                right:toggle({
+                    name = "Death",
+                    flag = "tg_reset_death",
+                    default = config.Targeting.ResetOn.death,
+                    callback = function(on)
+                        config.Targeting.ResetOn.death = on
+                    end
+                })
+            end
+
+            
+
+            
+        end
+        -- targeting system end
+
+        -- мультисекция Aimbot/Calculate
+        do
+            -- гарантируем, что есть секция конфига Aimbot
+            config.Aimbot = config.Aimbot or { Enabled = false, SelectedPart = "Head", UseNamecall = false, Resolver = { Enabled = false, Mode = "Velocity" }, ShowPrediction = false }
+            -- блок предикшена по умолчанию
+            config.Aimbot.Prediction = config.Aimbot.Prediction or {
+                Enabled = false,
+                Type = "Sets",
+                Sets = { X = 0, Y = 0, Z = 0 },
+            }
+
+            local aim_col, calc_col = rage_tab:multi_section({
+                names = {"Aimbot", "Calculate"}
+            })
+
+            -- Aimbot Enabled
+            local aim_toggle = aim_col:toggle({
+                name = "Enabled",
+                flag = "aim_enabled",
+                default = config.Aimbot.Enabled,
+                callback = function(on)
+                    config.Aimbot.Enabled = on
+                end
+            })
+
+            -- контейнер зависимостей для элементов, зависящих от Enabled
+            local aim_dep = aim_col:dependency_box()
+            aim_dep:setup_dependencies({ { aim_toggle, true } })
+
+            -- Показ луча предикшена (видим только при Enabled)
+            aim_dep:toggle({
+                name = "ShowPrediction",
+                flag = "aim_show_pred",
+                default = config.Aimbot.ShowPrediction,
+                callback = function(on)
+                    config.Aimbot.ShowPrediction = on
+                end
+            })
+
+            -- AimPart (читабельные сокращения R15 в CamelCase)
+            do
+                local label_to_part = {
+                    Head = "Head",
+                    Root = "HumanoidRootPart",
+                    UpperTorso = "UpperTorso",
+                    LowerTorso = "LowerTorso",
+                    RightUpperArm = "RightUpperArm",
+                    RightLowerArm = "RightLowerArm",
+                    RightHand = "RightHand",
+                    LeftUpperArm = "LeftUpperArm",
+                    LeftLowerArm = "LeftLowerArm",
+                    LeftHand = "LeftHand",
+                    RightUpperLeg = "RightUpperLeg",
+                    RightLowerLeg = "RightLowerLeg",
+                    RightFoot = "RightFoot",
+                    LeftUpperLeg = "LeftUpperLeg",
+                    LeftLowerLeg = "LeftLowerLeg",
+                    LeftFoot = "LeftFoot",
+                }
+                local items = {
+                    "Head","Root","UpperTorso","LowerTorso",
+                    "RightUpperArm","RightLowerArm","RightHand",
+                    "LeftUpperArm","LeftLowerArm","LeftHand",
+                    "RightUpperLeg","RightLowerLeg","RightFoot",
+                    "LeftUpperLeg","LeftLowerLeg","LeftFoot",
+                }
+                local function part_to_label(part)
+                    for k, v in pairs(label_to_part) do if v == part then return k end end
+                    return "Head"
+                end
+                local default_label = part_to_label(config.Aimbot.SelectedPart or "Head")
+                aim_dep:dropdown({
+                    name = "AimPart",
+                    flag = "aim_part",
+                    items = items,
+                    default = default_label,
+                    callback = function(sel)
+                        local mapped = label_to_part[sel]
+                        if mapped then config.Aimbot.SelectedPart = mapped end
+                    end
+                })
+            end
+
+            -- Resolver UI (НЕ зависит от Aimbot Enabled)
+            do
+                local res_toggle = aim_col:toggle({
+                    name = "Resolver",
+                    flag = "aim_resolver_enabled",
+                    default = (config.Aimbot.Resolver and config.Aimbot.Resolver.Enabled) or false,
+                    callback = function(on)
+                        config.Aimbot.Resolver = config.Aimbot.Resolver or { Mode = "Velocity" }
+                        config.Aimbot.Resolver.Enabled = on
+                    end
+                })
+                local res_dep = aim_col:dependency_box()
+                res_dep:setup_dependencies({ { res_toggle, true } })
+                -- компактный маппинг: полные имена в UI -> короткие ключи в конфиге
+                local map = { Velocity = "Velocity", MoveDirection = "MoveDir", LookVector = "LookVec", Recalculate = "Recalc", CalculateCFrame = "CalcCFrame" }
+                local items = {"Velocity","MoveDirection","LookVector","Recalculate","CalculateCFrame"}
+                local current_mode = (config.Aimbot.Resolver and config.Aimbot.Resolver.Mode) or "Velocity"
+                local default_label = (current_mode == "Velocity" and "Velocity")
+                    or (current_mode == "MoveDir" and "MoveDirection")
+                    or (current_mode == "LookVec" and "LookVector")
+                    or (current_mode == "Recalc" and "Recalculate")
+                    or (current_mode == "CalcCFrame" and "CalculateCFrame")
+                    or "Velocity"
+                res_dep:dropdown({
+                    name = "Type",
+                    flag = "aim_resolver_type",
+                    items = items,
+                    default = default_label,
+                    callback = function(sel)
+                        config.Aimbot.Resolver = config.Aimbot.Resolver or { Enabled = false }
+                        config.Aimbot.Resolver.Mode = map[sel] or "Velocity"
+                    end
+                })
+            end
+
+            -- Calculate: Prediction UI
+            do
+                local pred_toggle = calc_col:toggle({
+                    name = "Prediction",
+                    flag = "aim_pred_enabled",
+                    default = config.Aimbot.Prediction.Enabled,
+                    callback = function(on)
+                        config.Aimbot.Prediction.Enabled = on
+                    end
+                })
+
+                local dep_pred = calc_col:dependency_box()
+                dep_pred:setup_dependencies({ { pred_toggle, true } })
+
+                local type_dd = dep_pred:dropdown({
+                    name = "Type",
+                    flag = "aim_pred_type",
+                    items = {"Sets"},
+                    default = config.Aimbot.Prediction.Type or "Sets",
+                    callback = function(sel)
+                        config.Aimbot.Prediction.Type = sel
+                    end
+                })
+
+                local dep_sets = dep_pred:dependency_box()
+                dep_sets:setup_dependencies({ { type_dd, "Sets" } })
+                dep_sets:label({ text = "prediction x" })
+                dep_sets:textbox({
+                    name = "x",
+                    flag = "aim_pred_x",
+                    placeholder = "x",
+                    default = tostring(config.Aimbot.Prediction.Sets.X or 0),
+                    callback = function(txt)
+                        local v = tonumber(txt)
+                        if v then config.Aimbot.Prediction.Sets.X = v end
+                    end
+                })
+                dep_sets:label({ text = "prediction y" })
+                dep_sets:textbox({
+                    name = "y",
+                    flag = "aim_pred_y",
+                    placeholder = "y",
+                    default = tostring(config.Aimbot.Prediction.Sets.Y or 0),
+                    callback = function(txt)
+                        local v = tonumber(txt)
+                        if v then config.Aimbot.Prediction.Sets.Y = v end
+                    end
+                })
+                dep_sets:label({ text = "prediction z" })
+                dep_sets:textbox({
+                    name = "z",
+                    flag = "aim_pred_z",
+                    placeholder = "z",
+                    default = tostring(config.Aimbot.Prediction.Sets.Z or 0),
+                    callback = function(txt)
+                        local v = tonumber(txt)
+                        if v then config.Aimbot.Prediction.Sets.Z = v end
+                    end
+                })
+            end
+        end
+
+        -- Общие функции Resolver для Aimbot (доступны всем подпроцессам)
+        -- хранение предыдущей позиции для режимов Recalc/CalcCFrame
+        local resolver_state = { lastPos = nil, lastTick = 0 }
+        local function get_resolved_velocity(part, humanoid)
+            local mode = (config.Aimbot.Resolver and config.Aimbot.Resolver.Mode) or "Velocity"
+            if not (config.Aimbot.Resolver and config.Aimbot.Resolver.Enabled) then
+                return part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+            end
+            if mode == "Velocity" then
+                return part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+            elseif mode == "MoveDir" then
+                if humanoid then
+                    local md = humanoid.MoveDirection or vars.vector3()
+                    local ws = humanoid.WalkSpeed or 16
+                    return md * ws
+                end
+                return part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+            elseif mode == "LookVec" then
+                local mag = (part.AssemblyLinearVelocity or part.Velocity or vars.vector3()).Magnitude
+                return part.CFrame.LookVector * mag
+            elseif mode == "Recalc" or mode == "CalcCFrame" then
+                local now = os.clock()
+                local pos = part.Position
+                local v = part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+                if resolver_state.lastPos and resolver_state.lastTick and resolver_state.lastTick > 0 then
+                    local dt = now - resolver_state.lastTick
+                    if dt > 0 then
+                        v = (pos - resolver_state.lastPos) / dt
+                    end
+                end
+                resolver_state.lastPos = pos
+                resolver_state.lastTick = now
+                return v
+            end
+            return part.AssemblyLinearVelocity or part.Velocity or vars.vector3()
+        end
+
+        -- aimbot namecall hook start (по умолчанию выключен через UseNamecall=false)
+        do
+            -- точка прицеливания
+            local function get_target_pos()
+                if not (config.Aimbot and config.Aimbot.Enabled) then return nil end
+                if not TargetingAPI or not TargetingAPI.get then return nil end
+                local tg = TargetingAPI.get()
+                if not tg then return nil end
+                local sel = (config.Aimbot.SelectedPart or "Head")
+                local part = (tg.character and tg.character:FindFirstChild(sel)) or tg.rootpart
+                return part and part.Position or nil
+            end
+
+            local __nm
+            pcall(function()
+                __nm = hookmetamethod(game, "__namecall", function(self, ...)
+                    if not (config.Aimbot and config.Aimbot.Enabled and config.Aimbot.UseNamecall) then
+                        return __nm(self, ...)
+                    end
+                    local method = getnamecallmethod and getnamecallmethod() or nil
+                    if method == "FireServer" and typeof(self) == "Instance" and self == rs_service:FindFirstChild("MainEvent") then
+                        local args = { ... }
+                        if args[1] == "UpdateMousePos" then
+                            local p = get_target_pos()
+                            if p then
+                                args[2] = p
+                                return __nm(self, unpack(args))
+                            end
+                        end
+                    end
+                    return __nm(self, ...)
+                end)
+            end)
+        end
+        -- aimbot namecall hook end
+
+        -- aimbot __index hook start (Silent Aim совместимый)
+        do
+            local function get_target_part()
+                if not (config.Aimbot and config.Aimbot.Enabled) then return nil end
+                if not TargetingAPI or not TargetingAPI.get then return nil end
+                local tg = TargetingAPI.get()
+                if not tg then return nil end
+                local sel = (config.Aimbot.SelectedPart or "Head")
+                local part = (tg.character and tg.character:FindFirstChild(sel)) or tg.rootpart
+                return part
+            end
+
+            local __idx
+            
+
+            pcall(function()
+                __idx = hookmetamethod(game, "__index", function(t, k)
+                    if t and typeof(t) == "Instance" and t:IsA("Mouse") and (k == "Hit" or k == "Target") then
+                        local tg = TargetingAPI and TargetingAPI.get and TargetingAPI.get() or nil
+                        local part = nil
+                        local humanoid = nil
+                        if tg then
+                            local sel = (config.Aimbot.SelectedPart or "Head")
+                            part = (tg.character and tg.character:FindFirstChild(sel)) or tg.rootpart
+                            humanoid = tg.humanoid
+                        end
+                        if part then
+                            if k == "Hit" then
+                                local pos = part.Position
+                                -- применяем предикшн Sets при включении
+                                local pred = config.Aimbot.Prediction
+                                if pred and pred.Enabled and pred.Type == "Sets" then
+                                    local vel = get_resolved_velocity(part, humanoid)
+                                    local sx = tonumber(pred.Sets and pred.Sets.X) or 0
+                                    local sy = tonumber(pred.Sets and pred.Sets.Y) or 0
+                                    local sz = tonumber(pred.Sets and pred.Sets.Z) or 0
+                                    pos = pos + vars.vector3(vel.X * sx, vel.Y * sy, vel.Z * sz)
+                                end
+                                return CFrame.new(pos)
+                            else -- k == "Target"
+                                return part
+                            end
+                        end
+                    end
+                    return __idx(t, k)
+                end)
+            end)
+        end
+        -- aimbot __index hook end
+
+        -- aimbot prediction beam start
+        do
+            local vis = { beam = nil, a0 = nil, a1 = nil, part = nil }
+
+            local function find_hand()
+                local char = vars.lp and vars.lp.Character
+                if not char then return nil end
+                return char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
+            end
+
+            local function ensure_beam()
+                if vis.beam and vis.a0 and vis.a1 and vis.part then return true end
+                local hand = find_hand()
+                if not hand or not hand:IsA("BasePart") then return false end
+
+                -- attachment on hand
+                local a0 = hand:FindFirstChild("RB_Att0")
+                if not a0 then
+                    a0 = Instance.new("Attachment")
+                    a0.Name = "RB_Att0"
+                    a0.Parent = hand
+                end
+
+                -- world target part + attachment
+                local part = vis.part
+                if not part then
+                    part = Instance.new("Part")
+                    part.Name = "RB_PredPoint"
+                    part.Anchored = true
+                    part.CanCollide = false
+                    part.Transparency = 1
+                    part.Size = Vector3.new(0.2, 0.2, 0.2)
+                    part.Parent = vars.ws
+                end
+                local a1 = part:FindFirstChild("RB_Att1")
+                if not a1 then
+                    a1 = Instance.new("Attachment")
+                    a1.Name = "RB_Att1"
+                    a1.Parent = part
+                end
+
+                local beam = vis.beam
+                if not beam then
+                    beam = Instance.new("Beam")
+                    beam.Name = "RB_PredBeam"
+                    beam.Attachment0 = a0
+                    beam.Attachment1 = a1
+                    beam.Width0 = 0.12
+                    beam.Width1 = 0.12
+                    beam.Color = ColorSequence.new(config.Targeting.FovColor or Color3.new(1, 0.4, 0.4))
+                    beam.Transparency = NumberSequence.new(0)
+                    beam.LightEmission = 0.6
+                    beam.Enabled = false
+                    beam.Parent = a0
+                else
+                    beam.Attachment0 = a0
+                    beam.Attachment1 = a1
+                end
+
+                vis.a0, vis.a1, vis.part, vis.beam = a0, a1, part, beam
+                return true
+            end
+
+            local function get_predicted_pos_for_visual()
+                if not (config.Aimbot and config.Aimbot.Enabled and config.Aimbot.ShowPrediction) then return nil end
+                if not TargetingAPI or not TargetingAPI.get then return nil end
+                local tg = TargetingAPI.get()
+                if not tg then return nil end
+                local sel = (config.Aimbot.SelectedPart or "Head")
+                local part = (tg.character and tg.character:FindFirstChild(sel)) or tg.rootpart
+                if not part then return nil end
+                local pos = part.Position
+                local pred = config.Aimbot.Prediction
+                if pred and pred.Enabled and pred.Type == "Sets" then
+                    local vel = get_resolved_velocity(part, tg.humanoid)
+                    local sx = tonumber(pred.Sets and pred.Sets.X) or 0
+                    local sy = tonumber(pred.Sets and pred.Sets.Y) or 0
+                    local sz = tonumber(pred.Sets and pred.Sets.Z) or 0
+                    pos = pos + vars.vector3(vel.X * sx, vel.Y * sy, vel.Z * sz)
+                end
+                return pos
+            end
+
+            run.RenderStepped:Connect(function()
+                if config.Aimbot.Enabled and config.Aimbot.ShowPrediction then
+                    local p = get_predicted_pos_for_visual()
+                    if p and ensure_beam() then
+                        vis.part.CFrame = CFrame.new(p)
+                        vis.beam.Enabled = true
+                    else
+                        if vis.beam then vis.beam.Enabled = false end
+                    end
+                else
+                    if vis.beam then vis.beam.Enabled = false end
+                end
+            end)
+        end
+        -- aimbot prediction beam end
+    end
+    -- Rage tab end
+
+    -- Misc tab start
+    local misc_tab = window:tab({ name = "Misc" })
+    do
+        local col = misc_tab:column()
+        local section = col:section({ name = "misc" })
+        -- здесь будут элементы Misc
+    end
+    -- Misc tab end
+
+    -- Visuals tab start
+    local visuals_tab = window:tab({ name = "Visuals" })
+    do
+        local col = visuals_tab:column()
+        local section = col:section({ name = "visuals" })
+        -- здесь будут элементы Visuals
+    end
+    -- Visuals tab end
+end
+-- tabs end
+
+local settings_tab = window:tab({ name = "Settings", enabled = true })
+
+getgenv().load_config = function(name)
+	library:load_config(readfile(library.directory .. "/configs/" .. name .. ".cfg"))
+end
+
+local column = settings_tab:column()
+local section = column:section({ name = "Config" })
+local old_config = library:get_config()
+config_holder = section:list({ flag = "config_name_list" })
+section:textbox({ flag = "config_name_text_box" })
+section:button_holder({})
+section:button({
+	name = "Create",
+	callback = function()
+		writefile(library.directory .. "/configs/" .. flags["config_name_text_box"] .. ".cfg", library:get_config())
+		library:config_list_update()
+	end,
+})
+section:button({
+	name = "Delete",
+	callback = function()
+		delfile(library.directory .. "/configs/" .. flags["config_name_list"] .. ".cfg")
+		library:config_list_update()
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Load",
+	callback = function()
+		library:load_config(readfile(library.directory .. "/configs/" .. flags["config_name_list"] .. ".cfg"))
+		library:notification({
+			text = "Loaded Config: " .. flags["config_name_list"],
+			time = 3,
+		})
+	end,
+})
+section:button({
+	name = "Save",
+	callback = function()
+		writefile(library.directory .. "/configs/" .. flags["config_name_list"] .. ".cfg", library:get_config())
+		library:config_list_update()
+		library:notification({
+			text = "Saved Config: " .. flags["config_name_list"],
+			time = 3,
+		})
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Refresh Configs",
+	callback = function()
+		library:config_list_update()
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Unload Config",
+	callback = function()
+		library:load_config(old_config)
+	end,
+})
+section:button({
+	name = "Unload Menu",
+	callback = function()
+		library:load_config(old_config)
+
+		for _, gui in library.guis do
+			gui:Destroy()
+		end
+
+		for _, connection in library.connections do
+			connection:Disconnect()
+		end
+	end,
+})
+
+local column = settings_tab:column()
+local section = column:section({ name = "Theme" })
+section:label({ name = "Accent" }):colorpicker({
+	name = "Accent",
+	color = themes.preset.accent,
+	flag = "accent",
+	callback = function(color, alpha)
+		library:update_theme("accent", color)
+	end,
+})
+section
+	:label({ name = "Contrast" })
+	:colorpicker({
+		name = "Low",
+		color = themes.preset.low_contrast,
+		flag = "low_contrast",
+		callback = function(color)
+			if flags["high_contrast"] and flags["low_contrast"] then
+				library:update_theme(
+					"contrast",
+					rgbseq({
+						rgbkey(0, flags["low_contrast"].Color),
+						rgbkey(1, flags["high_contrast"].Color),
+					})
+				)
+			end
+		end,
+	})
+	:colorpicker({
+		name = "High",
+		color = themes.preset.high_contrast,
+		flag = "high_contrast",
+		callback = function(color)
+			library:update_theme(
+				"contrast",
+				rgbseq({
+					rgbkey(0, flags["low_contrast"].Color),
+					rgbkey(1, flags["high_contrast"].Color),
+				})
+			)
+		end,
+	})
+section:label({ name = "Inline" }):colorpicker({
+    name = "Inline",
+    color = themes.preset.inline,
+    flag = "inline",
+    callback = function(color, alpha)
+        library:update_theme("inline", color)
+    end,
+})
+section:label({ name = "Outline" }):colorpicker({
+    name = "Outline",
+    color = themes.preset.outline,
+    flag = "outline",
+    callback = function(color, alpha)
+        library:update_theme("outline", color)
+    end,
+})
+section
+    :label({ name = "Text Color" })
+    :colorpicker({
+        name = "Main",
+        color = themes.preset.text,
+        flag = "text",
+        callback = function(color, alpha)
+            library:update_theme("text", color)
+        end,
+    })
+    :colorpicker({
+        name = "Outline",
+        color = themes.preset.text_outline,
+        flag = "text_outline",
+        callback = function(color, alpha)
+            library:update_theme("text_outline", color)
+        end,
+    })
+section:label({ name = "Glow" }):colorpicker({
+    name = "Glow",
+    color = themes.preset.glow,
+    flag = "glow",
+    callback = function(color, alpha)
+        library:update_theme("glow", color)
+    end,
+})
+section:label({ name = "UI Bind" }):keybind({
+	callback = window.set_menu_visibility,
+	key = Enum.KeyCode.Insert,
+})
+section:toggle({
+    name = "Keybind List",
+    flag = "keybind_list",
+    callback = function(bool)
+        library.keybind_list_frame.Visible = bool
+    end,
+})
+section:toggle({
+    name = "Watermark",
+    flag = "watermark",
+    callback = function(bool)
+        watermark.set_visible(bool)
+    end,
+})
+section:button_holder({})
+section:button({
+	name = "Copy JobId",
+	callback = function()
+		setclipboard(game.JobId)
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Copy GameID",
+	callback = function()
+		setclipboard(game.GameId)
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Copy Join Script",
+	callback = function()
+		setclipboard(
+			'game:GetService("TeleportService"):TeleportToPlaceInstance('
+				.. game.PlaceId
+				.. ', "'
+				.. game.JobId
+				.. '", game.Players.LocalPlayer)'
+		)
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Rejoin",
+	callback = function()
+		game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, lp)
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Join New Server",
+	callback = function()
+		local apiRequest = game:GetService("HttpService"):JSONDecode(
+			game:HttpGetAsync(
+				"https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+			)
+		)
+		local data = apiRequest.data[random(1, #apiRequest.data)]
+
+		if data.playing <= flags["max_players"] then
+			game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, data.id)
+		end
+	end,
+})
+section:slider({
+	name = "Max Players",
+	flag = "max_players",
+	min = 0,
+	max = 40,
+	default = 15,
+	interval = 1,
+})
+--
+task.spawn(function()
+	while task.wait(1) do
+		watermark.change_text(os.date("32vision - fullskidded - %b %d %Y - %H:%M:%S"))
+	end
+end)
+--
+
+library:config_list_update()
+
+for index, value in next, themes.preset do
+	pcall(function()
+		library:update_theme(index, value)
+	end)
+end
+
+library.keybind_list_frame.Visible = false
+watermark.set_visible(false)
