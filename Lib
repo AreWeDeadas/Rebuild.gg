@@ -77,6 +77,7 @@ local library = {
 	connections = {},
 	notifications = {},
 	playerlist_data = {},
+	dependency_boxes = {},
 
 	current_tab,
 	current_element_open,
@@ -84,95 +85,10 @@ local library = {
 	font,
 	keybind_list,
 	binds = {},
-	dependencies = {}, -- dependency system storage
 }
 
 local flags = library.flags
 local config_flags = library.config_flags
-
--- dependency system functions
-function library:setup_dependency(flag, config, visibility_func)
-	if not library.dependencies[flag] then
-		library.dependencies[flag] = {}
-	end
-	
-	local dep = {
-		config = config,
-		visibility_func = visibility_func
-	}
-	
-	table.insert(library.dependencies[flag], dep)
-	
-	-- initial check
-	library:check_dependency(dep)
-end
-
-function library:check_dependency(dep)
-	local should_show = true
-	
-	for _, condition in pairs(dep.config) do
-		local flag = condition.flag
-		local expected = condition.value
-		local current = flags[flag]
-		
-		if type(expected) == "boolean" then
-			-- toggle dependency
-			if current ~= expected then
-				should_show = false
-				break
-			end
-		elseif type(expected) == "string" or type(expected) == "table" then
-			-- dropdown dependency
-			if type(expected) == "table" then
-				-- check if current value in list
-				local found = false
-				for _, v in pairs(expected) do
-					if current == v then
-						found = true
-						break
-					end
-				end
-				if not found then
-					should_show = false
-					break
-				end
-			else
-				-- single value check
-				if current ~= expected then
-					should_show = false
-					break
-				end
-			end
-		end
-	end
-	
-	if dep.visibility_func then
-		dep.visibility_func(should_show)
-	end
-end
-
-function library:update_dependencies(flag)
-	local deps = library.dependencies[flag]
-	
-	if not deps then return end
-	
-	for _, dep in pairs(deps) do
-		library:check_dependency(dep)
-	end
-	
-	-- check nested dependencies
-	for other_flag, other_deps in pairs(library.dependencies) do
-		if other_flag ~= flag then
-			for _, dep in pairs(other_deps) do
-				for _, condition in pairs(dep.config) do
-					if condition.flag == flag then
-						library:check_dependency(dep)
-					end
-				end
-			end
-		end
-	end
-end
 
 local themes = {
 	preset = {
@@ -1110,6 +1026,7 @@ function library:window(properties)
 		BorderColor3 = rgb(0, 0, 0),
 		Text = "Keybinds",
 		BackgroundTransparency = 1,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		Size = dim2(1, 0, 1, 0),
 		BorderSizePixel = 0,
 		TextSize = 12,
@@ -1717,8 +1634,8 @@ function library:tab(options)
 
 	local inline = library:create("Frame", {
 		Parent = tab_holder,
-		Name = "\0",
 		Size = dim2(1, -2, 1, 0),
+		Name = "\0",
 		Position = dim2(0, 1, 0, 1),
 		BorderColor3 = rgb(0, 0, 0),
 		ZIndex = 5,
@@ -1729,8 +1646,8 @@ function library:tab(options)
 
 	local background = library:create("Frame", {
 		Parent = inline,
-		Name = "\0",
 		Size = dim2(1, -2, 1, -1),
+		Name = "\0",
 		Position = dim2(0, 1, 0, 1),
 		BorderColor3 = rgb(0, 0, 0),
 		ZIndex = 5,
@@ -2026,6 +1943,7 @@ function library:multi_section(options)
 			BackgroundColor3 = rgb(255, 255, 255),
 			BorderColor3 = rgb(0, 0, 0),
 			BorderSizePixel = 0,
+			ScrollBarThickness = 2,
 			CanvasSize = dim2(0, 0, 0, 0),
 		})
 		library:apply_theme(ScrollingFrame, "accent", "ScrollBarImageColor3")
@@ -2224,7 +2142,6 @@ function library:slider(options)
 		flag = options.flag or tostring(2 ^ 789),
 		callback = options.callback or function() end,
 		visible = options.visible or true,
-		dependencies = options.dependencies or nil, -- dependency config
 
 		min = options.min or options.minimum or 0,
 		max = options.max or options.maximum or 100,
@@ -2429,7 +2346,7 @@ function library:slider(options)
 		end
 	end
 
-	library:connection(uis.InputChanged, function(input, game_event)
+	library:connection(uis.InputChanged, function(input)
 		if cfg.dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
 			local size_x = (input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X
 			local value = ((cfg.max - cfg.min) * size_x) + cfg.min
@@ -2458,26 +2375,6 @@ function library:slider(options)
 
 	library.config_flags[cfg.flag] = cfg.set
 	library.visible_flags[cfg.flag] = cfg.set_element_visible
-	
-	-- setup dependencies if provided
-	if cfg.dependencies then
-		for _, dep_config in pairs(cfg.dependencies) do
-			local controlling_flag = dep_config.flag
-			if not library.dependencies[controlling_flag] then
-				library.dependencies[controlling_flag] = {}
-			end
-			
-			local dep = {
-				config = {dep_config},
-				visibility_func = cfg.set_element_visible
-			}
-			
-			table.insert(library.dependencies[controlling_flag], dep)
-			
-			-- initial check
-			library:check_dependency(dep)
-		end
-	end
 
 	return setmetatable(cfg, library)
 end
@@ -2492,7 +2389,6 @@ function library:toggle(options)
 		colorpicker = options.color or nil,
 		visible = options.visible or true,
 		tooltip = options.tooltip or nil,
-		dependencies = options.dependencies or nil, -- dependency config
 	}
 
 	-- instances
@@ -2631,8 +2527,8 @@ function library:toggle(options)
 
 		cfg.callback(bool)
 		
-		-- update dependencies
-		library:update_dependencies(cfg.flag)
+		-- обновляем dependency boxes при изменении toggle
+		library:update_dependencies()
 	end
 
 	function cfg.set_element_visible(bool)
@@ -2661,11 +2557,6 @@ function library:toggle(options)
 
 	library.config_flags[cfg.flag] = cfg.set
 	library.visible_flags[cfg.flag] = cfg.set_element_visible
-	
-	-- setup dependencies if provided
-	if cfg.dependencies then
-		library:setup_dependency(cfg.flag, cfg.dependencies, cfg.set_element_visible)
-	end
 
 	return setmetatable(cfg, library)
 end
@@ -3638,7 +3529,6 @@ function library:dropdown(options)
 		callback = options.callback or function() end,
 		multi = options.multi or false,
 		visible = options.visible or true,
-		dependencies = options.dependencies or nil, -- dependency config
 
 		open = false,
 		option_instances = {},
@@ -3649,7 +3539,362 @@ function library:dropdown(options)
 	cfg.default = options.default or (cfg.multi and { cfg.items[1] }) or cfg.items[1] or nil
 
 	-- dropdown elements
-{{ ... }}
+	local dropdown_REAL = library:create("TextLabel", {
+		Parent = parent,
+		FontFace = library.font,
+		TextColor3 = themes.preset.text,
+		BorderColor3 = rgb(0, 0, 0),
+		Text = "",
+		Name = "dropdown",
+		ZIndex = 2,
+		Size = dim2(1, -8, 0, 12),
+		BorderSizePixel = 0,
+		BackgroundTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		AutomaticSize = Enum.AutomaticSize.Y,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextSize = 12,
+		BackgroundColor3 = rgb(255, 255, 255),
+	})
+
+	local main_text
+	if cfg.name then
+		local left_components = library:create("Frame", {
+			Parent = dropdown_REAL,
+			Name = "left_components",
+			BackgroundTransparency = 1,
+			Position = dim2(0, 2, 0, -1),
+			BorderColor3 = rgb(0, 0, 0),
+			Size = dim2(0, 0, 0, 14),
+			BorderSizePixel = 0,
+			BackgroundColor3 = rgb(255, 255, 255),
+		})
+
+		main_text = library:create("TextLabel", {
+			Parent = left_components,
+			FontFace = library.font,
+			TextColor3 = themes.preset.text,
+			BorderColor3 = rgb(0, 0, 0),
+			Text = cfg.name,
+			Name = "text",
+			BackgroundTransparency = 1,
+			Size = dim2(0, 0, 1, -1),
+			BorderSizePixel = 0,
+			AutomaticSize = Enum.AutomaticSize.X,
+			TextSize = 12,
+			BackgroundColor3 = rgb(255, 255, 255),
+		})
+
+		library:create("UIStroke", {
+			Parent = main_text,
+			LineJoinMode = Enum.LineJoinMode.Miter,
+		})
+
+		library:create("UIListLayout", {
+			Parent = left_components,
+			Padding = dim(0, 5),
+			Name = "_",
+			FillDirection = Enum.FillDirection.Horizontal,
+		})
+
+		local right_components = library:create("Frame", {
+			Parent = dropdown_REAL,
+			Name = "right_components",
+			Position = dim2(1, -1, 0, 1),
+			BorderColor3 = rgb(0, 0, 0),
+			Size = dim2(0, 0, 0, 12),
+			BorderSizePixel = 0,
+			BackgroundColor3 = rgb(255, 255, 255),
+		})
+		cfg["right_holder"] = right_components
+
+		local list = library:create("UIListLayout", {
+			Parent = right_components,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Right,
+			Padding = dim(0, 4),
+			Name = "list",
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		})
+	end
+
+	local bottom_components = library:create("Frame", {
+		Parent = dropdown_REAL,
+		Name = "bottom_components",
+		Position = dim2(0, 0, 0, cfg.name and 15 or 0),
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, 26, 0, 0),
+		BorderSizePixel = 0,
+		BackgroundColor3 = rgb(255, 255, 255),
+	})
+
+	local dropdown = library:create("TextButton", {
+		Parent = bottom_components,
+		Name = "dropdown",
+		Position = dim2(0, 0, 0, 2),
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, -27, 1, 18),
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.outline,
+		Text = "",
+		AutoButtonColor = false,
+	})
+	library:apply_theme(dropdown, "outline", "BackgroundColor3")
+
+	local inline = library:create("Frame", {
+		Parent = dropdown,
+		Name = "inline",
+		Position = dim2(0, 1, 0, 1),
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, -2, 1, -2),
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.inline,
+	})
+	library:apply_theme(inline, "inline", "BackgroundColor3")
+
+	local background = library:create("Frame", {
+		Parent = inline,
+		Name = "background",
+		Position = dim2(0, 1, 0, 1),
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, -2, 1, -2),
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.accent,
+	})
+	library:apply_theme(background, "accent", "BackgroundColor3")
+
+	local contrast = library:create("Frame", {
+		Parent = background,
+		Name = "contrast",
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, 0, 1, 0),
+		BorderSizePixel = 0,
+		BackgroundColor3 = rgb(255, 255, 255),
+	})
+
+	local plus = library:create("TextLabel", {
+		Parent = contrast,
+		TextWrapped = true,
+		TextColor3 = themes.preset.text,
+		BorderColor3 = rgb(0, 0, 0),
+		Text = "+",
+		Name = "plus",
+		Size = dim2(1, -4, 1, 0),
+		Position = dim2(0, 0, 0, -1),
+		BackgroundTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		FontFace = library.font,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		BorderSizePixel = 0,
+		BackgroundColor3 = rgb(255, 255, 255),
+	})
+
+	library:create("UIStroke", {
+		Parent = plus,
+		LineJoinMode = Enum.LineJoinMode.Miter,
+	})
+
+	local text = library:create("TextLabel", {
+		Parent = contrast,
+		FontFace = library.font,
+		TextColor3 = themes.preset.text,
+		BorderColor3 = rgb(0, 0, 0),
+		Text = "aa",
+		Name = "text",
+		Size = dim2(1, -4, 1, 0),
+		Position = dim2(0, 4, 0, -1),
+		BackgroundTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BorderSizePixel = 0,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextSize = 12,
+		BackgroundColor3 = rgb(255, 255, 255),
+	})
+
+	library:create("UIStroke", {
+		Parent = text,
+		LineJoinMode = Enum.LineJoinMode.Miter,
+	})
+
+	local UIGradient = library:create("UIGradient", {
+		Parent = contrast,
+		Rotation = 90,
+		Color = rgbseq({
+			rgbkey(0, rgb(41, 41, 55)),
+			rgbkey(1, rgb(35, 35, 47)),
+		}),
+	})
+	library:apply_theme(UIGradient, "contrast", "Color")
+
+	local UIGradient = library:create("UIGradient", {
+		Parent = background,
+		Rotation = 90,
+		Color = rgbseq({
+			rgbkey(0, rgb(255, 255, 255)),
+			rgbkey(1, rgb(167, 167, 167)),
+		}),
+	})
+	library:apply_theme(UIGradient, "contrast", "Color")
+
+	library:create("UIListLayout", {
+		Parent = bottom_components,
+		Padding = dim(0, 10),
+		Name = "_",
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	})
+	--
+
+	-- dropdown holder
+	local dropdown_holder = library:create("Frame", {
+		Parent = sgui,
+		BorderColor3 = rgb(0, 0, 0),
+		Name = "dropdown_holder",
+		BackgroundTransparency = 1,
+		Position = dim2(0, dropdown.AbsolutePosition.X + 1, 0, dropdown.AbsolutePosition.Y + 22),
+		Size = dim2(0, dropdown.AbsoluteSize.X, 0, cfg.scrolling and 180 or 0),
+		BorderSizePixel = 0,
+		AutomaticSize = cfg.scrolling and Enum.AutomaticSize.None or Enum.AutomaticSize.Y,
+		BackgroundColor3 = themes.preset.outline,
+		Visible = false,
+	})
+
+	local inline = library:create("Frame", {
+		Parent = dropdown_holder,
+		Size = dim2(1, -2, 1, 2),
+		Name = "inline",
+		Position = dim2(0, 1, 0, 1),
+		BorderColor3 = rgb(0, 0, 0),
+		ZIndex = 2,
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.inline,
+	})
+	library:apply_theme(inline, "inline", "BackgroundColor3")
+
+	local background
+	if not cfg.scrolling then
+		background = library:create("Frame", {
+			Parent = inline,
+			BorderColor3 = rgb(0, 0, 0),
+			Name = "background",
+			BackgroundTransparency = 1,
+			Position = dim2(0, 1, 0, 1),
+			Size = dim2(1, -2, 1, 1),
+			ZIndex = 2,
+			BorderSizePixel = 0,
+			BackgroundColor3 = themes.preset.accent,
+		})
+		library:apply_theme(background, "accent", "BackgroundColor3")
+	else
+		background = library:create("ScrollingFrame", {
+			Parent = inline,
+			BorderColor3 = rgb(0, 0, 0),
+			Name = "background",
+			BackgroundTransparency = 1,
+			Position = dim2(0, 1, 0, 1),
+			Size = dim2(1, -2, 1, 1),
+			ZIndex = 2,
+			BorderSizePixel = 0,
+			BackgroundColor3 = themes.preset.accent,
+			CanvasSize = dim2(0, 0, 0, 0),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			ScrollBarThickness = 2,
+			ScrollBarImageColor3 = themes.preset.accent,
+		})
+		library:apply_theme(background, "accent", "BackgroundColor3")
+		library:apply_theme(background, "accent", "ScrollBarImageColor3")
+	end
+
+	local contrast = library:create("Frame", {
+		Parent = background,
+		Name = "contrast",
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, 0, 1, -3),
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		BackgroundColor3 = rgb(255, 255, 255),
+		AutomaticSize = cfg.scrolling and Enum.AutomaticSize.Y or Enum.AutomaticSize.None,
+	})
+
+	library:create("UIPadding", {
+		Parent = contrast,
+		PaddingTop = dim(0, 2),
+		PaddingBottom = dim(0, 2),
+		PaddingRight = dim(0, 0),
+		PaddingLeft = dim(0, 4),
+	})
+
+	local UIGradient = library:create("UIGradient", {
+		Parent = contrast,
+		Rotation = 90,
+		Color = rgbseq({
+			rgbkey(0, rgb(41, 41, 55)),
+			rgbkey(1, rgb(35, 35, 47)),
+		}),
+	})
+	library:apply_theme(UIGradient, "contrast", "Color")
+
+	library:create("UIListLayout", {
+		Parent = contrast,
+		Padding = dim(0, 5),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	})
+	library:apply_theme(UIGradient, "contrast", "Color")
+
+	local UIGradient = library:create("UIGradient", {
+		Parent = background,
+		Rotation = 90,
+		Color = rgbseq({
+			rgbkey(0, rgb(255, 255, 255)),
+			rgbkey(1, rgb(167, 167, 167)),
+		}),
+	})
+	library:apply_theme(UIGradient, "contrast", "Color")
+
+	local stroke = library:create("UIStroke", {
+		Parent = inline,
+		Color = themes.preset.outline,
+		LineJoinMode = Enum.LineJoinMode.Miter,
+	})
+	library:apply_theme(stroke, "outline", "Color")
+	--
+
+	function cfg.set_element_visible(bool)
+		dropdown_REAL.Visible = bool
+
+		if main_text then
+			main_text.Visible = bool
+		end
+	end
+
+	function cfg.set_visible(bool)
+		dropdown_holder.Visible = bool
+
+		plus.Text = bool and "-" or "+"
+		plus.TextSize = bool and 12 or 8
+
+		if bool then
+			if library.current_element_open and library.current_element_open ~= cfg then
+				library.current_element_open.set_visible(false)
+				library.current_element_open.open = false
+			end
+
+			dropdown_holder.Size = dim2(0, dropdown.AbsoluteSize.X, 0, dropdown_holder.Size.Y.Offset)
+			dropdown_holder.Position = dim2(0, dropdown.AbsolutePosition.X + 1, 0, dropdown.AbsolutePosition.Y + 22)
+			library.current_element_open = cfg
+		end
+	end
+
+	function cfg.set(value)
+		local selected = {}
+
+		local is_table = type(value) == "table"
+
+		for _, v in next, cfg.option_instances do
+			if v.Text == value or (is_table and find(value, v.Text)) then
+				insert(selected, v.Text)
+				cfg.multi_items = selected
+				v.TextColor3 = themes.preset.accent
 			else
 				v.TextColor3 = themes.preset.text
 			end
@@ -3659,14 +3904,13 @@ function library:dropdown(options)
 		flags[cfg.flag] = is_table and selected or selected[1]
 		cfg.callback(flags[cfg.flag])
 		
-		-- update dependencies
-		library:update_dependencies(cfg.flag)
+		-- обновляем dependency boxes при изменении dropdown
+		library:update_dependencies()
 	end
 
 	function cfg:refresh_options(refreshed_list)
 		for _, v in next, cfg.option_instances do
 			v:Destroy()
-{{ ... }}
 		end
 
 		cfg.option_instances = {}
@@ -3732,26 +3976,6 @@ function library:dropdown(options)
 	library.visible_flags[cfg.flag] = cfg.set_element_visible
 
 	cfg.set_element_visible(cfg.visible)
-	
-	-- setup dependencies if provided
-	if cfg.dependencies then
-		for _, dep_config in pairs(cfg.dependencies) do
-			local controlling_flag = dep_config.flag
-			if not library.dependencies[controlling_flag] then
-				library.dependencies[controlling_flag] = {}
-			end
-			
-			local dep = {
-				config = {dep_config},
-				visibility_func = cfg.set_element_visible
-			}
-			
-			table.insert(library.dependencies[controlling_flag], dep)
-			
-			-- initial check
-			library:check_dependency(dep)
-		end
-	end
 
 	return setmetatable(cfg, library)
 end
@@ -4785,5 +5009,103 @@ function library:playerlist(options)
 
 	return setmetatable(cfg, library)
 end
+
+-- dependency system start
+function library:update_dependencies()
+	for _, dep_box in next, library.dependency_boxes do
+		if dep_box.check_dependencies then
+			dep_box:check_dependencies()
+		end
+	end
+end
+
+function library:dependency_box(options)
+	local cfg = {
+		dependencies = {},
+		elements = {},
+		visible = true,
+		holder = nil,
+	}
+
+	-- создаем контейнер для зависимых элементов
+	local dependency_holder = library:create("Frame", {
+		Parent = self.holder,
+		Name = "dependency_box",
+		BackgroundTransparency = 1,
+		Size = dim2(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BorderSizePixel = 0,
+	})
+
+	cfg.holder = dependency_holder
+
+	-- функция для проверки зависимостей
+	function cfg:check_dependencies()
+		local should_show = true
+		
+		for _, dependency in next, cfg.dependencies do
+			local flag_obj = dependency[1]
+			local required_value = dependency[2]
+			
+			if type(flag_obj) == "string" then
+				-- зависимость от флага по строке
+				if flags[flag_obj] ~= required_value then
+					should_show = false
+					break
+				end
+			elseif type(flag_obj) == "table" and flag_obj.flag then
+				-- зависимость от объекта с флагом
+				if flags[flag_obj.flag] ~= required_value then
+					should_show = false
+					break
+				end
+			end
+		end
+		
+		cfg:set_visible(should_show)
+	end
+
+	-- функция для установки видимости
+	function cfg:set_visible(visible)
+		cfg.visible = visible
+		dependency_holder.Visible = visible
+	end
+
+	-- функция для настройки зависимостей
+	function cfg:setup_dependencies(dependencies)
+		cfg.dependencies = dependencies or {}
+		cfg:check_dependencies()
+	end
+
+	-- добавляем в список dependency boxes
+	insert(library.dependency_boxes, cfg)
+
+	-- переопределяем методы для добавления элементов
+	local original_holder = self.holder
+	self.holder = dependency_holder
+
+	return setmetatable(cfg, {
+		__index = function(t, k)
+			if library[k] then
+				return function(self, ...)
+					-- восстанавливаем контекст для создания элемента
+					local temp_holder = library.holder
+					library.holder = dependency_holder
+					
+					local element = library[k](self, ...)
+					insert(cfg.elements, element)
+					
+					-- возвращаем оригинальный holder
+					library.holder = temp_holder
+					
+					return element
+				end
+			end
+			return rawget(t, k)
+		end
+	})
+end
+-- dependency system end
+
 --
 return library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp
