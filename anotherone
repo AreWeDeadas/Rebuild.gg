@@ -1,3 +1,17 @@
+-- roblox globals
+local cloneref = cloneref or function(x) return x end
+local readfile = readfile or function() return "" end
+local writefile = writefile or function() end
+local isfile = isfile or function() return false end
+local isfolder = isfolder or function() return false end
+local makefolder = makefolder or function() end
+local listfiles = listfiles or function() return {} end
+local delfile = delfile or function() end
+local task = task or {wait = wait or function() end, spawn = function(f) f() end}
+local tick = tick or os.clock
+local getgenv = getgenv or function() return _G end
+
+-- services
 local uis = cloneref(game:GetService("UserInputService"))
 local players = cloneref(game:GetService("Players"))
 local ws = cloneref(game:GetService("Workspace"))
@@ -90,6 +104,18 @@ local library = {
 
 local flags = library.flags
 local config_flags = library.config_flags
+
+-- create folders if they don't exist
+if not isfolder(library.directory) then
+	makefolder(library.directory)
+end
+
+for _, folder in ipairs(library.folders) do
+	local full_path = library.directory .. folder
+	if not isfolder(full_path) then
+		makefolder(full_path)
+	end
+end
 
 local themes = {
 	preset = {
@@ -5110,5 +5136,152 @@ function library:dependency_box(options)
 end
 -- dependency system end
 
+-- notification system start
+function library:notification(cfg)
+	-- простая заглушка для уведомлений
+	if cfg and cfg.text then
+		print("[Notification]", cfg.text)
+	end
+end
+-- notification system end
+
+-- theme management system start
+function library.get_theme_data()
+	local theme_data = {}
+	
+	-- собираем все флаги связанные с темой
+	for flag_name, flag_value in pairs(flags) do
+		if flag_name:match("^theme_") or flag_name == "accent" or flag_name == "contrast" or flag_name == "glow" then
+			-- конвертируем Color3 в hex строку
+			if typeof(flag_value) == "Color3" then
+				local r = floor(flag_value.R * 255)
+				local g = floor(flag_value.G * 255)
+				local b = floor(flag_value.B * 255)
+				theme_data[flag_name] = string.format("%02x%02x%02x", r, g, b)
+			else
+				theme_data[flag_name] = flag_value
+			end
+		end
+	end
+	
+	-- возвращаем JSON строку
+	return http_service:JSONEncode(theme_data)
+end
+
+function library.load_theme_data(json_data)
+	local success, theme_data = pcall(http_service.JSONDecode, http_service, json_data)
+	if not success then return false end
+	
+	-- применяем флаги из темы
+	for flag_name, flag_value in pairs(theme_data) do
+		if flags[flag_name] ~= nil then
+			-- конвертируем hex строку обратно в Color3
+			if type(flag_value) == "string" and flag_value:match("^%x%x%x%x%x%x$") then
+				flags[flag_name] = hex("#" .. flag_value)
+			else
+				flags[flag_name] = flag_value
+			end
+		end
+	end
+	
+	return true
+end
+
+function library.update_theme_list()
+	local themes_folder = library.directory .. "/themes"
+	local theme_files = {}
+	
+	-- встроенные темы
+	local builtin_themes = {
+		["[Built-in] Dark"] = {
+			theme_outline = "0f0207",
+			theme_inline = "260915",
+			theme_accent = "af3264",
+			theme_high_contrast = "1e0610",
+			theme_low_contrast = "16040c",
+			theme_text = "c8c8c8",
+			theme_disabled_text = "646464",
+			theme_glow = "af3264"
+		},
+		["[Built-in] Light"] = {
+			theme_outline = "e0e0e0",
+			theme_inline = "f5f5f5",
+			theme_accent = "4a90e2",
+			theme_high_contrast = "ffffff",
+			theme_low_contrast = "fafafa",
+			theme_text = "333333",
+			theme_disabled_text = "999999",
+			theme_glow = "4a90e2"
+		},
+		["[Built-in] Red"] = {
+			theme_outline = "200505",
+			theme_inline = "3a0a0a",
+			theme_accent = "ff3333",
+			theme_high_contrast = "2a0808",
+			theme_low_contrast = "1a0505",
+			theme_text = "ffffff",
+			theme_disabled_text = "808080",
+			theme_glow = "ff3333"
+		},
+		["[Built-in] Blue"] = {
+			theme_outline = "051020",
+			theme_inline = "0a1a3a",
+			theme_accent = "3366ff",
+			theme_high_contrast = "08152a",
+			theme_low_contrast = "050a1a",
+			theme_text = "ffffff",
+			theme_disabled_text = "808080",
+			theme_glow = "3366ff"
+		},
+		["[Built-in] Green"] = {
+			theme_outline = "052005",
+			theme_inline = "0a3a0a",
+			theme_accent = "33ff33",
+			theme_high_contrast = "082a08",
+			theme_low_contrast = "051a05",
+			theme_text = "ffffff",
+			theme_disabled_text = "808080",
+			theme_glow = "33ff33"
+		},
+		["[Built-in] Purple"] = {
+			theme_outline = "150520",
+			theme_inline = "2a0a3a",
+			theme_accent = "9933ff",
+			theme_high_contrast = "1a082a",
+			theme_low_contrast = "0f051a",
+			theme_text = "ffffff",
+			theme_disabled_text = "808080",
+			theme_glow = "9933ff"
+		}
+	}
+	
+	-- добавляем встроенные темы
+	for theme_name, _ in pairs(builtin_themes) do
+		insert(theme_files, theme_name)
+	end
+	
+	-- проверяем существование папки
+	if isfolder(themes_folder) then
+		-- читаем файлы из папки
+		local files = listfiles(themes_folder)
+		for _, file_path in ipairs(files) do
+			if file_path:match("%.theme$") then
+				local theme_name = file_path:match("([^/\\]+)%.theme$")
+				if theme_name then
+					insert(theme_files, theme_name)
+				end
+			end
+		end
+	end
+	
+	-- обновляем список в UI если есть элемент
+	if library.theme_list_element then
+		library.theme_list_element:refresh(theme_files)
+	end
+	
+	return theme_files
+end
+-- theme management system end
+
 --
-return library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp
+return library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp, config_flags
