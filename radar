@@ -1539,6 +1539,7 @@ function library:radar(options)
 			Transparency = 0.5,
 		})
 		
+		library:apply_theme(dot, "accent", "BackgroundColor3")
 		cfg.dots[player] = dot
 	end
 	
