@@ -1,0 +1,391 @@
+local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/radar"))()
+
+-- documentation
+local window = library:window({
+	name = os.date("Rebuild.gg - skidded by 32vision - fuckass - %b %d %Y - %H:%M:%S"),
+	size = dim2(0, 614, 0, 639),
+})
+local watermark = library:watermark({
+	default = os.date("Rebuild.gg - fuckass - %b %d %Y - %H:%M:%S"),
+})
+-- radar system start
+local radar = library:radar({
+	size = 200,
+	clamp = true,
+})
+-- radar system end
+local Aimbot = window:tab({ name = "Rage" })
+local Misc = window:tab({ name = "Misc" })
+local Visuals = window:tab({ name = "Visuals" })
+local Players = window:tab({ name = "Players" })
+local Settings = window:tab({ name = "Settings" })
+
+getgenv().load_config = function(name)
+	library:load_config(readfile(library.directory .. "/configs/" .. name .. ".cfg"))
+end
+
+local column = Settings:column()
+local section = column:section({ name = "Options" })
+local old_config = library:get_config()
+config_holder = section:list({ flag = "config_name_list" })
+section:textbox({ flag = "config_name_text_box" })
+section:button_holder({})
+section:button({
+	name = "Create",
+	callback = function()
+		writefile(library.directory .. "/configs/" .. flags["config_name_text_box"] .. ".cfg", library:get_config())
+		library:config_list_update()
+	end,
+})
+section:button({
+	name = "Delete",
+	callback = function()
+		delfile(library.directory .. "/configs/" .. flags["config_name_list"] .. ".cfg")
+		library:config_list_update()
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Load",
+	callback = function()
+		library:load_config(readfile(library.directory .. "/configs/" .. flags["config_name_list"] .. ".cfg"))
+		library:notification({
+			text = "Loaded Config: " .. flags["config_name_list"],
+			time = 3,
+		})
+	end,
+})
+section:button({
+	name = "Save",
+	callback = function()
+		writefile(library.directory .. "/configs/" .. flags["config_name_list"] .. ".cfg", library:get_config())
+		library:config_list_update()
+		library:notification({
+			text = "Saved Config: " .. flags["config_name_list"],
+			time = 3,
+		})
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Refresh Configs",
+	callback = function()
+		library:config_list_update()
+	end,
+})
+section:button_holder({})
+section:button({
+	name = "Unload Config",
+	callback = function()
+		library:load_config(old_config)
+	end,
+})
+section:button({
+	name = "Unload Menu",
+	callback = function()
+		library:load_config(old_config)
+
+		for _, gui in library.guis do
+			gui:Destroy()
+		end
+
+		for _, connection in library.connections do
+			connection:Disconnect()
+		end
+	end,
+})
+
+local Theme, Game, HUD = Settings:column():multi_section({ names = { "Theme", "Game", "HUD" } })
+Theme:label({ name = "Accent" }):colorpicker({
+	name = "Accent",
+	color = hex("#ffffff"),
+	flag = "accent",
+	callback = function(color, alpha)
+		library:update_theme("accent", color)
+	end,
+})
+Theme
+	:label({ name = "Contrast" })
+	:colorpicker({
+		name = "Low",
+		color = hex("#2d2d2d"),
+		flag = "low_contrast",
+		callback = function(color)
+			if flags["high_contrast"] and flags["low_contrast"] then
+				library:update_theme(
+					"contrast",
+					rgbseq({
+						rgbkey(0, flags["low_contrast"].Color),
+						rgbkey(1, flags["high_contrast"].Color),
+					})
+				)
+			end
+		end,
+	})
+	:colorpicker({
+		name = "High",
+		color = hex("#101010"),
+		flag = "high_contrast",
+		callback = function(color)
+			library:update_theme(
+				"contrast",
+				rgbseq({
+					rgbkey(0, flags["low_contrast"].Color),
+					rgbkey(1, flags["high_contrast"].Color),
+				})
+			)
+		end,
+	})
+Theme:label({ name = "Inline" }):colorpicker({
+	name = "Inline",
+	color = hex("#313131"),
+	flag = "theme_inline",
+	callback = function(color, alpha)
+		library:update_theme("inline", color)
+	end,
+})
+Theme:label({ name = "Outline" }):colorpicker({
+	name = "Outline",
+	color = hex("#000000"),
+	flag = "theme_outline",
+	callback = function(color, alpha)
+		library:update_theme("outline", color)
+	end,
+})
+Theme
+	:label({ name = "Text Color" })
+	:colorpicker({
+		name = "Main",
+		color = hex("#7b7b7b"),
+		flag = "theme_text",
+		callback = function(color, alpha)
+			library:update_theme("text", color)
+		end,
+	})
+	:colorpicker({
+		name = "Outline",
+		color = hex("#282828"),
+		flag = "theme_text_outline",
+		callback = function(color, alpha)
+			library:update_theme("text_outline", color)
+		end,
+	})
+Theme:label({ name = "Glow" }):colorpicker({
+	name = "Glow",
+	color = hex("#ffffff"),
+	flag = "theme_glow",
+	callback = function(color, alpha)
+		library:update_theme("glow", color)
+	end,
+})
+HUD:label({ name = "UI Bind" }):keybind({
+	callback = window.set_menu_visibility,
+	key = Enum.KeyCode.Insert,
+})
+HUD:toggle({
+	name = "Keybind List",
+	flag = "keybind_list",
+	callback = function(bool)
+		library.keybind_list_frame.Visible = bool
+	end,
+})
+
+-- build watermark text based on selected HUD -> Watermark -> Type items
+local PLACE_NAME_CACHE
+local function build_watermark_text()
+    local sel = flags["watermark_type"]
+    local out = {}
+
+    -- cache place name once
+    local function get_place_name()
+        if PLACE_NAME_CACHE ~= nil then
+            return PLACE_NAME_CACHE
+        end
+        local ok, info = pcall(function()
+            return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+        end)
+        local name = ok and info and info.Name or tostring(game.PlaceId)
+        PLACE_NAME_CACHE = name
+        return name
+    end
+
+    if type(sel) == "table" then
+        -- normalize selection to a set for stable ordering output
+        local selected = {}
+        for _, key in next, sel do selected[key] = true end
+        if selected["Date"] then out[#out + 1] = os.date("%y:%m:%d") end
+        if selected["Time"] then out[#out + 1] = os.date("%H:%M:%S") end
+        if selected["Place"] then out[#out + 1] = get_place_name() end
+        if selected["User"] then out[#out + 1] = (lp and lp.Name or "?") end
+    end
+
+    if #out == 0 then
+        -- fallback: keep prior behavior-like time stamp
+        out[1] = os.date("%H:%M:%S")
+    end
+
+    return "Rebuild.gg - " .. table.concat(out, " - ")
+end
+
+local wm_toggle = HUD:toggle({
+    name = "Watermark",
+    flag = "watermark",
+    callback = function(bool)
+        watermark.set_visible(bool)
+        if bool then
+            -- immediate refresh on toggle enable
+            watermark.change_text(build_watermark_text())
+        end
+    end,
+})
+local wm_dep = HUD:dependency_box()
+wm_dep:setup_dependencies({
+    { wm_toggle, true }
+})
+wm_dep:dropdown({
+    name = "Type",
+    flag = "watermark_type",
+    items = { "Time", "Date", "Place", "User" },
+    multi = true,
+    default = { "Time" },
+    callback = function(selected)
+        -- immediate refresh on selection change
+        watermark.change_text(build_watermark_text())
+    end,
+})
+
+-- radar hud start
+local radar_toggle = HUD:toggle({
+    name = "Radar",
+    flag = "hud_radar",
+    callback = function(bool)
+        radar.set_visible(bool)
+    end,
+})
+local radar_dep = HUD:dependency_box()
+radar_dep:setup_dependencies({
+    { radar_toggle, true },
+})
+radar_dep:slider({
+    name = "Zoom",
+    flag = "radar_zoom",
+    min = 0.5,
+    max = 4,
+    default = 1,
+    interval = 0.1,
+    callback = function(v)
+        radar.set_zoom(v)
+    end,
+})
+-- radar hud end
+Game:button_holder({})
+Game:button({
+	name = "Copy JobId",
+	callback = function()
+		setclipboard(game.JobId)
+	end,
+})
+Game:button_holder({})
+Game:button({
+	name = "Copy GameID",
+	callback = function()
+		setclipboard(game.GameId)
+	end,
+})
+Game:button_holder({})
+Game:button({
+	name = "Copy Join Script",
+	callback = function()
+		setclipboard(
+			'game:GetService("TeleportService"):TeleportToPlaceInstance('
+				.. game.PlaceId
+				.. ', "'
+				.. game.JobId
+				.. '", game.Players.LocalPlayer)'
+		)
+	end,
+})
+Game:button_holder({})
+Game:button({
+	name = "Rejoin",
+	callback = function()
+		game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, lp)
+	end,
+})
+Game:button_holder({})
+Game:button({
+	name = "Join New Server",
+	callback = function()
+		local apiRequest = game:GetService("HttpService"):JSONDecode(
+			game:HttpGetAsync(
+				"https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+			)
+		)
+		local data = apiRequest.data[random(1, #apiRequest.data)]
+
+		if data.playing <= flags["max_players"] then
+			game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, data.id)
+		end
+	end,
+})
+Game:slider({
+	name = "Max Players",
+	flag = "max_players",
+	min = 0,
+	max = 40,
+	default = 15,
+	interval = 1,
+})
+--
+
+Aimbot.open_tab()
+
+task.spawn(function()
+    while task.wait(1) do
+        watermark.change_text(build_watermark_text())
+    end
+end)
+--
+
+-- radar runtime start
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+
+    local function track_player(p)
+        if p ~= lp then
+            radar.add_dot(p)
+        end
+    end
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        track_player(p)
+    end
+
+    table.insert(library.connections, Players.PlayerAdded:Connect(track_player))
+    table.insert(library.connections, Players.PlayerRemoving:Connect(function(p)
+        radar.remove_dot(p)
+    end))
+
+    table.insert(library.connections, RunService.RenderStepped:Connect(function()
+        if not radar or not flags["hud_radar"] then return end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp then
+                local char = p.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    radar.update_dot(p, hrp.Position)
+                end
+            end
+        end
+    end))
+end
+-- radar runtime end
+
+library:config_list_update()
+
+for index, value in next, themes.preset do
+	pcall(function()
+		library:update_theme(index, value)
+	end)
+end
