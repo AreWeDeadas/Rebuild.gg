@@ -67,12 +67,14 @@ local vars = {
     math = math,
     vector3 = Vector3.new,
     color3 = Color3.new,
+    task = task,
+    enum = Enum,
 }
 
 -- единый конфиг
 local config = {
     Targeting = {
-        Keybind = Enum.KeyCode.Q,
+        Keybind = vars.enum.KeyCode.Q,
         Player = nil,
         RefreshMs = 150,
         Fov = 100,
@@ -90,6 +92,22 @@ local config = {
             death = false,
         },
         BindActive = false,
+    },
+    Aimbot = {
+        Enabled = false,
+        ShowPrediction = false,
+        SelectedPart = "Head",
+        BackTrackAim = false,
+        PredColor = color(1, 0.4, 0.4),
+        BTPredColor = color(0.4, 0.8, 1),
+    },
+    BackTrack = {
+        Enabled = false,
+        Time = 1.0, -- seconds (1-5)
+        Visualise = {
+            Material = "Neon",
+            Transparency = 0.5,
+        },
     },
     Debug = {
         Enabled = false,
@@ -150,9 +168,28 @@ end
 
 
 -- utility framework start
+local utility
 do
-    -- универсальные утилиты
-    local utility = {}
+    utility = {}
+    
+    -- R15 body parts (централизованный список)
+    local R15_BODY_PARTS = {
+        "Head", "UpperTorso", "LowerTorso",
+        "RightUpperArm", "LeftUpperArm", "RightLowerArm", "LeftLowerArm",
+        "RightHand", "LeftHand", "RightUpperLeg", "LeftUpperLeg",
+        "RightLowerLeg", "LeftLowerLeg", "RightFoot", "LeftFoot"
+    }
+    
+    function utility:GetR15BodyParts()
+        return R15_BODY_PARTS
+    end
+    
+    function utility:IsR15BodyPart(partName)
+        for _, name in ipairs(R15_BODY_PARTS) do
+            if partName == name then return true end
+        end
+        return false
+    end
     
     -- валидация игрока
     function utility:ValidateClient(player)
@@ -233,47 +270,7 @@ do
         return math.sqrt(dx*dx + dy*dy)
     end
     
-    -- получение ближайшего игрока к мыши
-    function utility:GetClosestToMouse(maxDistance, checks)
-        local bestDist = maxDistance or math.huge
-        local best = nil
-        local mouse = vars.lp:GetMouse()
-        
-        for _, plr in ipairs(vars.players:GetPlayers()) do
-            if plr ~= vars.lp then
-                local character, humanoid, rootpart = self:ValidateClient(plr)
-                if character and humanoid and rootpart then
-                    local sp, onScreen = self:ToScreen(rootpart.Position)
-                    if onScreen then
-                        local skip = false
-                        
-                        -- применяем проверки если переданы
-                        if checks then
-                            if checks.forcefield and self:HasForcefield(plr) then
-                                skip = true
-                            end
-                            if checks.knocked and self:IsKnocked(plr) then
-                                skip = true
-                            end
-                            if checks.visible and not self:IsVisible(rootpart.Position, character) then
-                                skip = true
-                            end
-                        end
-                        
-                        if not skip then
-                            local dist = self:GetMouseDistance(sp)
-                            if dist < bestDist then
-                                bestDist = dist
-                                best = plr
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        
-        return best, bestDist
-    end
+
     
     -- получение части тела игрока
     function utility:GetBodyPart(character, partName)
@@ -294,87 +291,9 @@ do
         return velocity or Vector3.zero
     end
     
-    -- проверка на команду
-    function utility:IsTeammate(player)
-        if not player or not vars.lp then return false end
-        if not player.Team or not vars.lp.Team then return false end
-        return player.Team == vars.lp.Team
-    end
+
     
-    -- получение здоровья
-    function utility:GetHealth(humanoid)
-        if not humanoid then return 0, 100 end
-        return humanoid.Health, humanoid.MaxHealth
-    end
-    
-    -- проверка жив ли игрок
-    function utility:IsAlive(player)
-        local character, humanoid = self:ValidateClient(player)
-        return character ~= nil and humanoid ~= nil and humanoid.Health > 0
-    end
-    
-    -- получение дистанции между точками
-    function utility:GetDistance3D(pos1, pos2)
-        if not pos1 or not pos2 then return math.huge end
-        return (pos1 - pos2).Magnitude
-    end
-    
-    -- получение 2D дистанции (игнорируя Y)
-    function utility:GetDistance2D(pos1, pos2)
-        if not pos1 or not pos2 then return math.huge end
-        local delta = Vector3.new(pos1.X - pos2.X, 0, pos1.Z - pos2.Z)
-        return delta.Magnitude
-    end
-    
-    -- проверка в радиусе FOV
-    function utility:IsInFOV(screenPos, fov)
-        if not screenPos or not fov then return false end
-        local mouse = vars.lp:GetMouse()
-        local dist = self:GetMouseDistance(screenPos)
-        return dist <= fov
-    end
-    
-    -- получение угла между векторами
-    function utility:GetAngle(v1, v2)
-        if not v1 or not v2 then return 0 end
-        local dot = v1:Dot(v2)
-        local mag = v1.Magnitude * v2.Magnitude
-        if mag == 0 then return 0 end
-        return math.acos(self:Clamp(dot / mag, -1, 1))
-    end
-    
-    -- нормализация угла
-    function utility:NormalizeAngle(angle)
-        while angle > math.pi do
-            angle = angle - 2 * math.pi
-        end
-        while angle < -math.pi do
-            angle = angle + 2 * math.pi
-        end
-        return angle
-    end
-    
-    -- получение направления взгляда
-    function utility:GetLookDirection(character)
-        if not character then return Vector3.zero end
-        local head = character:FindFirstChild("Head")
-        if not head then return Vector3.zero end
-        return head.CFrame.LookVector
-    end
-    
-    -- проверка смотрит ли игрок на цель
-    function utility:IsLookingAt(character, targetPos, threshold)
-        threshold = threshold or 0.5
-        local lookDir = self:GetLookDirection(character)
-        if lookDir == Vector3.zero then return false end
-        
-        local head = character:FindFirstChild("Head")
-        if not head then return false end
-        
-        local toTarget = (targetPos - head.Position).Unit
-        local dot = lookDir:Dot(toTarget)
-        return dot > threshold
-    end
+
     
     -- получение ping (безопасно; кэш + авто-отключение на ошибке)
     function utility:GetPing()
@@ -414,20 +333,17 @@ do
         end
     end
     
-    -- безопасное деление
-    function utility:SafeDivide(a, b, default)
-        if b == 0 or not b then return default or 0 end
-        return a / b
+    -- безопасный юнит вектор
+    function utility:SafeUnit(vector)
+        if vector.Magnitude > 1e-8 then
+            return vector.Unit
+        end
+        return vars.vec3(0, 0, 0)
     end
     
     -- клэмп значения
     function utility:Clamp(value, min, max)
         return math.max(min, math.min(max, value))
-    end
-    
-    -- линейная интерполяция
-    function utility:Lerp(a, b, t)
-        return a + (b - a) * self:Clamp(t, 0, 1)
     end
     
     -- проверка на стену между точками
@@ -441,18 +357,7 @@ do
         return result ~= nil
     end
     
-    -- получение ближайшей точки на линии
-    function utility:GetClosestPointOnLine(lineStart, lineEnd, point)
-        local lineVec = lineEnd - lineStart
-        local pointVec = point - lineStart
-        local lineLen = lineVec.Magnitude
-        
-        if lineLen == 0 then return lineStart end
-        
-        local t = self:Clamp(pointVec:Dot(lineVec) / (lineLen * lineLen), 0, 1)
-        return lineStart + lineVec * t
-    end
-    
+
     -- проверка наличия инструмента
     function utility:HasTool(character)
         if not character then return false end
@@ -474,37 +379,7 @@ do
         return ok
     end
     
-    -- получение позиции мыши
-    function utility:GetMousePosition()
-        local mouse = vars.lp:GetMouse()
-        return Vector2.new(mouse.X, mouse.Y)
-    end
-    
-    -- получение 3D позиции мыши
-    function utility:GetMouse3DPosition()
-        local mouse = vars.lp:GetMouse()
-        return mouse.Hit and mouse.Hit.Position or Vector3.zero
-    end
-    
-    -- проверка находится ли точка в круге
-    function utility:IsInCircle(point, center, radius)
-        if not point or not center then return false end
-        local dist = (point - center).Magnitude
-        return dist <= radius
-    end
-    
-    -- получение случайного числа в диапазоне
-    function utility:RandomFloat(min, max)
-        return min + (max - min) * math.random()
-    end
-    
-    -- плавное движение (smooth step)
-    function utility:SmoothStep(from, to, t)
-        t = self:Clamp(t, 0, 1)
-        t = t * t * (3 - 2 * t)
-        return self:Lerp(from, to, t)
-    end
-    
+
     -- симуляция выстрела
     function utility:SimulateShot()
         -- 1) VirtualUser
@@ -560,22 +435,8 @@ do
         return closestPart, closestDist
     end
     
-    -- создание луча
-    function utility:CreateRay(origin, direction, params)
-        if not origin or not direction then return nil end
-        params = params or RaycastParams.new()
-        return vars.ws:Raycast(origin, direction, params)
-    end
+
     
-    -- получение направления к цели
-    function utility:GetDirection(from, to)
-        if not from or not to then return Vector3.zero end
-        local direction = (to - from)
-        return self:SafeUnit(direction)
-    end
-    
-    -- экспорт утилит глобально для использования в других блоках
-    _G.RebuildUtility = utility
 end
 -- utility framework end
 
@@ -583,8 +444,9 @@ end
 do
     -- Rage tab start
     local rage_tab = window:tab({ name = "Rage" })
-    -- общий указатель для доступа к таргетингу из других блоков (например, Aimbot hooks)
+    -- общий указатель для доступа к таргетингу и бэктреку из других блоков (например, Aimbot hooks)
     local TargetingAPI = nil
+    local BackTrackAPI = nil
     do
         -- targeting system start
         do
@@ -617,8 +479,7 @@ do
                 end
             end
 
-            -- используем глобальные утилиты
-            local utility = _G.RebuildUtility
+            -- используем локальные утилиты
 
             local function disconnect_target_events()
                 if state.humanoidConn then state.humanoidConn:Disconnect() state.humanoidConn = nil end
@@ -916,10 +777,559 @@ do
                 end
             end)
 
+            local col = rage_tab:column()
+
             -- UI блок Targeting
-            local left, right = rage_tab:multi_section({
+            local left, right = col:multi_section({
                 names = {"Targeting", "Options"}
             })
+            -- BackTrack мультисекция
+            local bt_left, bt_right = col:multi_section({
+                names = {"BackTrack", "Visualise"}
+            })
+                -- backtrack                -- state
+                local bt = {
+                    enabled = config.BackTrack.Enabled,
+                    mode = config.BackTrack.Mode or "PastTracking",
+                    time = math.max(1.0, math.min(5.0, config.BackTrack.Time or 1.0)),
+                    freeze_delay = config.BackTrack.FreezeDelay or 1000,
+                    histories = {},   -- [player] = { { time=t, parts={ [part]=cframe } }, ... }
+                    clones = {},      -- [player] = { model=Model, map={ [origPart]=clonePart }, hrp=Part, torso=Part, hum=Humanoid }
+                    conns = {},
+                    orig_canquery = {}, -- per-player original Hitbox.CanQuery
+                    last_cleanup = 0, -- последняя принудительная очистка
+                    stuck_detection = {}, -- [player] = { pos=Vector3, time=number, count=number }
+                }
+
+                -- helpers
+                local function release_hitbox(plr)
+                    if not plr then return end
+                    local hbFolder = vars.ws:FindFirstChild("Players")
+                    local plFolder = hbFolder and hbFolder:FindFirstChild(plr.Name)
+                    local hitbox = plFolder and plFolder:FindFirstChild("Hitbox")
+                    if hitbox and hitbox:IsA("BasePart") then
+                        -- удаление только constraint'ов связанных с backtrack
+                        for _, constraint in ipairs(hitbox:GetChildren()) do
+                            if constraint:IsA("Constraint") then
+                                pcall(function() constraint:Destroy() end)
+                            end
+                        end
+                        
+                        -- очистка constraint'ов в папке игрока связанных с hitbox
+                        if plFolder then
+                            for _, constraint in ipairs(plFolder:GetDescendants()) do
+                                if constraint:IsA("WeldConstraint") or constraint:IsA("Motor6D") or constraint:IsA("Weld") then
+                                    local connected = false
+                                    pcall(function()
+                                        if constraint.Part0 == hitbox or constraint.Part1 == hitbox then 
+                                            connected = true 
+                                        end
+                                    end)
+                                    if connected then pcall(function() constraint:Destroy() end) end
+                                end
+                            end
+                        end
+                        
+                        -- восстановление оригинального состояния hitbox
+                        pcall(function()
+                            -- восстановление CanQuery
+                            if bt.orig_canquery[plr] ~= nil then
+                                hitbox.CanQuery = bt.orig_canquery[plr]
+                            else
+                                hitbox.CanQuery = true -- дефолтное значение
+                            end
+                            
+                            -- возврат к оригинальному персонажу
+                            local character = plr.Character
+                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                hitbox.CFrame = character.HumanoidRootPart.CFrame
+                            end
+                            
+                            -- восстановление физических свойств к дефолту
+                            hitbox.Anchored = false
+                            hitbox.CanCollide = false
+                            hitbox.CanTouch = false
+                            hitbox.AssemblyLinearVelocity = vars.vec3(0, 0, 0)
+                            hitbox.AssemblyAngularVelocity = vars.vec3(0, 0, 0)
+                            hitbox.Velocity = vars.vec3(0, 0, 0)
+                            hitbox.RotVelocity = vars.vec3(0, 0, 0)
+                            hitbox.Transparency = 1 -- невидимый
+                            hitbox.Material = vars.enum.Material.Plastic -- дефолтный материал
+                        end)
+                    end
+                end
+
+                -- функция обновления визуальных свойств клонов
+                local function update_clone_visuals()
+                    if bt.clones then
+                        for plr, cloneData in pairs(bt.clones) do
+                            if cloneData.model then
+                                for _, part in ipairs(cloneData.model:GetChildren()) do
+                                    if part:IsA("BasePart") then
+                                        if utility:IsR15BodyPart(part.Name) then
+                                            -- применяем выбранный материал и прозрачность только к частям тела
+                                            local material = config.BackTrack.Visualise.Material
+                                            if material == "Neon" then
+                                                part.Material = vars.enum.Material.Neon
+                                            elseif material == "ForceField" then
+                                                part.Material = vars.enum.Material.ForceField
+                                            elseif material == "Glass" then
+                                                part.Material = vars.enum.Material.Glass
+                                            end
+                                            part.Transparency = config.BackTrack.Visualise.Transparency
+                                        else
+                                            -- все остальные части (аксессуары) остаются прозрачными с материалом Plastic
+                                            part.Material = vars.enum.Material.Plastic
+                                            part.Transparency = 1
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- expose API for aimbot to use clone parts
+                BackTrackAPI = {
+                    get_part = function(plr, partName)
+                        if not plr then return nil end
+                        local info = bt.clones[plr]
+                        if not info then return nil end
+                        local desired = tostring(partName or "Head")
+                        for orig, clone in pairs(info.map) do
+                            if typeof(orig) == "Instance" and orig.Name == desired then
+                                return clone
+                            end
+                        end
+                        -- fallback to HRP
+                        return info.hrp or info.torso
+                    end
+                }
+
+                -- UI
+                -- Toggle для включения BackTrack
+                local bt_toggle = bt_left:toggle({
+                    name = "Enabled",
+                    flag = "bt_enabled",
+                    default = bt.enabled,
+                    callback = function(on)
+                        bt.enabled = on
+                        config.BackTrack.Enabled = on
+                        if on then
+                            -- start
+                            if not bt.conns.hb then bt.conns.hb = vars.rs.Heartbeat:Connect(function()
+
+
+                                -- только текущая цель
+                                local tg = TargetingAPI and TargetingAPI.get and TargetingAPI.get() or nil
+                                if not tg or not tg.player or tg.player == vars.lp then
+                                    -- no target: только очистка backtrack состояния, не трогаем hitbox других игроков
+                                    if bt.target then
+                                        release_hitbox(bt.target)
+                                        local info = bt.clones[bt.target]
+                                        if info and info.model then pcall(function() info.model:Destroy() end) end
+                                        bt.clones[bt.target] = nil
+                                        bt.histories[bt.target] = nil
+                                        bt.orig_canquery[bt.target] = nil
+                                        if bt.stuck_detection[bt.target] then
+                                            bt.stuck_detection[bt.target] = nil
+                                        end
+                                        bt.target = nil
+                                    end
+                                    return
+                                end
+
+                                local plr = tg.player
+                                -- backtrack только для цели aimbot'а, не для локального игрока
+                                if not plr or plr == vars.lp then
+                                    -- если нет цели или цель = локальный игрок, только восстанавливаем состояние
+                                    if bt.target then
+                                        release_hitbox(bt.target)
+                                        local info = bt.clones[bt.target]
+                                        if info and info.model then pcall(function() info.model:Destroy() end) end
+                                        bt.clones[bt.target] = nil
+                                        bt.histories[bt.target] = nil
+                                        bt.orig_canquery[bt.target] = nil
+                                        if bt.stuck_detection[bt.target] then
+                                            bt.stuck_detection[bt.target] = nil
+                                        end
+                                        bt.target = nil
+                                    end
+                                    return
+                                end
+                                -- смена цели => полная очистка старого
+                                if bt.target and bt.target ~= plr then
+                                    local old = bt.target
+                                    local info = bt.clones[old]
+                                    release_hitbox(old)
+                                    if info and info.model then pcall(function() info.model:Destroy() end) end
+                                    bt.clones[old] = nil
+                                    bt.histories[old] = nil
+                                    bt.orig_canquery[old] = nil
+                                    -- очистка флага хитбокса
+                                    if bt.hitbox_cleaned and bt.hitbox_cleaned[old] then
+                                        bt.hitbox_cleaned[old] = nil
+                                    end
+                                    if bt.freeze_time and bt.freeze_time[old] then
+                                        bt.freeze_time[old] = nil
+                                    end
+                                    -- очистка данных детекции застревания
+                                    if bt.stuck_detection[old] then
+                                        bt.stuck_detection[old] = nil
+                                    end
+                                    -- дополнительная очистка для предотвращения застревания
+                                    bt.last_target_switch = os.clock()
+                                end
+                                bt.target = plr
+
+                                -- пропускаем кадр если недавно была смена цели
+                                if bt.last_target_switch and (os.clock() - bt.last_target_switch) < 0.1 then
+                                    return
+                                end
+
+                                local character, humanoid, rootpart = utility:ValidateClient(plr)
+                                if not (character and humanoid and rootpart) then return end
+
+                                -- ensure container folder
+                                local folder = vars.ws:FindFirstChild("BackTrack") or Instance.new("Folder")
+                                folder.Name = "BackTrack"
+                                if folder.Parent ~= vars.ws then folder.Parent = vars.ws end
+
+                                -- create or reuse lightweight proxy clone (no collisions)
+                                if not bt.clones[plr] then
+                                    local model = Instance.new("Model")
+                                    model.Name = "BT_" .. plr.Name
+                                    model.Parent = folder
+                                    local map = {}
+                                    local hrpClone, torsoClone
+                                    for _, child in ipairs(character:GetDescendants()) do
+                                        if child:IsA("BasePart") and not child.Parent:IsA("Accessory") then
+                                            local c = child:Clone()
+                                            -- полная очистка всех constraint'ов и соединений
+                                            for _, d in ipairs(c:GetDescendants()) do
+                                                if d:IsA("Motor6D") or d:IsA("Weld") or d:IsA("WeldConstraint") or 
+                                                   d:IsA("Attachment") or d:IsA("Constraint") or d:IsA("JointInstance") then
+                                                    d:Destroy()
+                                                end
+                                            end
+                                            -- очистка прямых детей тоже
+                                            for _, d in ipairs(c:GetChildren()) do
+                                                if d:IsA("Motor6D") or d:IsA("Weld") or d:IsA("WeldConstraint") or 
+                                                   d:IsA("Attachment") or d:IsA("Constraint") or d:IsA("JointInstance") then
+                                                    d:Destroy()
+                                                end
+                                            end
+                                            -- настройка физики клона
+                                            c.CanCollide = false; c.CanQuery = false; c.CanTouch = false
+                                            c.Anchored = true; c.Massless = true
+                                            c.AssemblyLinearVelocity = vars.vec3(0, 0, 0)
+                                            c.AssemblyAngularVelocity = vars.vec3(0, 0, 0)
+                                            -- применение настроек визуализации
+                                            if utility:IsR15BodyPart(c.Name) then
+                                                -- применяем выбранный материал и прозрачность только к частям тела
+                                                local material = config.BackTrack.Visualise.Material
+                                                if material == "Neon" then
+                                                    c.Material = vars.enum.Material.Neon
+                                                elseif material == "ForceField" then
+                                                    c.Material = vars.enum.Material.ForceField
+                                                elseif material == "Glass" then
+                                                    c.Material = vars.enum.Material.Glass
+                                                end
+                                                c.Transparency = config.BackTrack.Visualise.Transparency
+                                            else
+                                                -- все остальные части (аксессуары) остаются прозрачными с материалом Plastic
+                                                c.Material = vars.enum.Material.Plastic
+                                                c.Transparency = 1
+                                            end
+                                            c.Parent = model
+                                            map[child] = c
+                                            if c.Name == "HumanoidRootPart" then hrpClone = c end
+                                            if c.Name == "UpperTorso" then torsoClone = c end
+                                        end
+                                    end
+                                    model.PrimaryPart = hrpClone or torsoClone
+                                    bt.clones[plr] = { model = model, map = map, hrp = hrpClone, torso = torsoClone }
+                                end
+
+                                -- режим работы
+                                local mode = config.BackTrack.Mode or "PastTracking"
+                                
+                                if mode == "PastTracking" then
+                                    -- запись истории только по карте клона
+                                    local now = os.clock()
+                                    local cloneInfo = bt.clones[plr]
+                                    local hist = bt.histories[plr]
+                                    if not hist then hist = {}; bt.histories[plr] = hist end
+                                    local snapshot = { time = now, parts = {} }
+                                    for orig, _ in pairs(cloneInfo.map) do
+                                        snapshot.parts[orig] = orig.CFrame
+                                    end
+                                    table.insert(hist, 1, snapshot)
+                                    local cutoff = now - (bt.time + 0.5)
+                                    local n = #hist
+                                    while n > 0 and hist[n].time < cutoff do
+                                        table.remove(hist, n)
+                                        n = n - 1
+                                    end
+
+                                    -- playback
+                                    if #hist > 0 then
+                                        local targetT = os.clock() - bt.time
+                                        local idx = 1
+                                        for i, entry in ipairs(hist) do
+                                            if entry.time <= targetT then idx = i; break end
+                                        end
+                                        local entry = hist[idx]
+                                        if entry then
+                                            for orig, c in pairs(cloneInfo.map) do
+                                                local cf = entry.parts[orig]
+                                                if cf then
+                                                    c.CFrame = cf
+                                                    c.CanCollide = false; c.CanQuery = false; c.CanTouch = false
+                                                    c.Anchored = true
+                                                    -- применение настроек визуализации
+                                                    if utility:IsR15BodyPart(c.Name) then
+                                                        -- применяем выбранный материал и прозрачность только к частям тела
+                                                        local material = config.BackTrack.Visualise.Material
+                                                        if material == "Neon" then
+                                                            c.Material = vars.enum.Material.Neon
+                                                        elseif material == "ForceField" then
+                                                            c.Material = vars.enum.Material.ForceField
+                                                        elseif material == "Glass" then
+                                                            c.Material = vars.enum.Material.Glass
+                                                        end
+                                                        c.Transparency = config.BackTrack.Visualise.Transparency
+                                                    else
+                                                        -- все остальные части (аксессуары) остаются прозрачными с материалом Plastic
+                                                        c.Material = vars.enum.Material.Plastic
+                                                        c.Transparency = 1
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                    
+                                elseif mode == "Freeze" then
+                                    -- Freeze режим - просто замораживаем клоны на месте с задержкой
+                                    local cloneInfo = bt.clones[plr]
+                                    local now = os.clock()
+                                    
+                                    -- инициализация времени заморозки
+                                    if not bt.freeze_time then bt.freeze_time = {} end
+                                    
+                                    -- обновляем позицию с задержкой
+                                    local freeze_delay = (config.BackTrack.FreezeUpdate or 500) / 1000
+                                    if not bt.freeze_time[plr] or (now - bt.freeze_time[plr]) >= freeze_delay then
+                                        bt.freeze_time[plr] = now
+                                        -- сохраняем текущие позиции
+                                        for orig, c in pairs(cloneInfo.map) do
+                                            c.CFrame = orig.CFrame
+                                            c.CanCollide = false
+                                            c.CanQuery = false
+                                            c.CanTouch = false
+                                            c.Anchored = true
+                                        end
+                                    end
+                                end
+
+                                -- relocate Hitbox to clone's HRP/UpperTorso every frame
+                                local cloneInfo = bt.clones[plr]
+                                if cloneInfo then
+                                    local hbFolder = vars.ws:FindFirstChild("Players")
+                                    local plFolder = hbFolder and hbFolder:FindFirstChild(plr.Name)
+                                    local hitbox = plFolder and plFolder:FindFirstChild("Hitbox")
+                                    if hitbox and hitbox:IsA("BasePart") then
+                                        -- remove weld constraints on first frame
+                                        if not bt.hitbox_cleaned then
+                                            bt.hitbox_cleaned = bt.hitbox_cleaned or {}
+                                            if not bt.hitbox_cleaned[plr] then
+                                                bt.hitbox_cleaned[plr] = true
+                                                
+                                                -- полная очистка всех constraint'ов связанных с hitbox
+                                                for _, constraint in ipairs(hitbox:GetChildren()) do
+                                                    if constraint:IsA("Constraint") then
+                                                        constraint:Destroy()
+                                                    end
+                                                end
+                                                
+                                                -- очистка constraint'ов в папке игрока
+                                                for _, constraint in ipairs(plFolder:GetDescendants()) do
+                                                    if constraint:IsA("WeldConstraint") or constraint:IsA("Motor6D") or constraint:IsA("Weld") then
+                                                        local connected = false
+                                                        pcall(function()
+                                                            if constraint.Part0 == hitbox or constraint.Part1 == hitbox then 
+                                                                connected = true 
+                                                            end
+                                                        end)
+                                                        if connected then constraint:Destroy() end
+                                                    end
+                                                end
+                                            end
+                                        end
+
+                                        local targetPart = cloneInfo.hrp or cloneInfo.torso
+                                        if targetPart then
+                                            -- capture original CanQuery once
+                                            if bt.orig_canquery[plr] == nil then
+                                                bt.orig_canquery[plr] = hitbox.CanQuery
+                                            end
+                                            hitbox.Anchored = true
+                                            hitbox.CanCollide = false; hitbox.CanQuery = true; hitbox.CanTouch = false
+                                            -- принудительная очистка velocity для предотвращения застревания
+                                            hitbox.AssemblyLinearVelocity = vars.vec3(0, 0, 0)
+                                            hitbox.AssemblyAngularVelocity = vars.vec3(0, 0, 0)
+                                            -- дополнительная очистка для предотвращения застревания
+                                            pcall(function()
+                                                hitbox.Velocity = vars.vec3(0, 0, 0)
+                                                hitbox.RotVelocity = vars.vec3(0, 0, 0)
+                                            end)
+                                            -- debug visibility (всегда прозрачный hitbox)
+                                            hitbox.Transparency = 1
+                                            pcall(function() hitbox.Material = vars.enum.Material.Plastic end)
+                                            -- move hitbox to clone position every frame
+                                            local newPos = targetPart.CFrame.Position
+                                            hitbox.CFrame = targetPart.CFrame
+                                            
+                                            -- детекция застревания hitbox
+                                            local stuckData = bt.stuck_detection[plr]
+                                            if not stuckData then
+                                                bt.stuck_detection[plr] = { pos = newPos, time = now, count = 0 }
+                                            else
+                                                local distance = (newPos - stuckData.pos).Magnitude
+                                                if distance < 0.1 then -- hitbox почти не двигается
+                                                    stuckData.count = stuckData.count + 1
+                                                    if stuckData.count > 30 then -- застрял на 30+ кадров
+                                                        -- принудительная очистка застрявшего hitbox
+                                                        pcall(function()
+                                                            for _, d in ipairs(hitbox:GetDescendants()) do
+                                                                if d:IsA("Constraint") or d:IsA("JointInstance") then d:Destroy() end
+                                                            end
+                                                            for _, d in ipairs(plFolder:GetDescendants()) do
+                                                                if d:IsA("WeldConstraint") or d:IsA("Motor6D") or d:IsA("Weld") then
+                                                                    if d.Part0 == hitbox or d.Part1 == hitbox then d:Destroy() end
+                                                                end
+                                                            end
+                                                            hitbox.AssemblyLinearVelocity = vars.vec3(0, 0, 0)
+                                                            hitbox.AssemblyAngularVelocity = vars.vec3(0, 0, 0)
+                                                        end)
+                                                        stuckData.count = 0 -- сброс счетчика
+                                                    end
+                                                else
+                                                    stuckData.pos = newPos
+                                                    stuckData.count = 0
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                        end)
+                    end
+                    else
+                        -- stop
+                        if bt.conns.hb then bt.conns.hb:Disconnect() bt.conns.hb = nil end
+                        for plr, info in pairs(bt.clones) do
+                            release_hitbox(plr)
+                            pcall(function() if info.model then info.model:Destroy() end end)
+                            bt.clones[plr] = nil
+                        end
+                        -- полная очистка состояния
+                        bt.histories = {}
+                        bt.target = nil
+                        bt.orig_canquery = {}
+                        bt.stuck_detection = {}
+                        bt.last_cleanup = 0
+                        bt.hitbox_cleaned = nil
+                        bt.freeze_time = nil
+                    end
+                    end,
+                })
+                
+                -- Dependency box для режимов
+                local bt_dep = bt_left:dependency_box()
+                bt_dep:setup_dependencies({ { bt_toggle, true } })
+                
+                -- Dropdown с режимами
+                local bt_dropdown = bt_dep:dropdown({
+                    name = "Mode",
+                    flag = "bt_mode",
+                    items = {"PastTracking", "Freeze"},
+                    default = config.BackTrack.Mode or "PastTracking",
+                    callback = function(mode)
+                        config.BackTrack.Mode = mode
+                        bt.mode = mode
+                    end,
+                })
+
+                -- Dependency box для PastTracking режима
+                local past_dep = bt_dep:dependency_box()
+                past_dep:setup_dependencies({ { bt_dropdown, "PastTracking" } })
+                
+                -- Слайдер для PastTracking режима
+                past_dep:slider({
+                    name = "Delay",
+                    flag = "bt_past_delay",
+                    min = 50,
+                    max = 5000,
+                    default = (config.BackTrack.PastDelay or bt.time * 1000),
+                    interval = 50,
+                    suffix = "ms",
+                    callback = function(v)
+                        bt.time = math.max(0.05, math.min(v / 1000, 5))
+                        config.BackTrack.Time = bt.time
+                        config.BackTrack.PastDelay = v
+                    end,
+                })
+                
+                -- Dependency box для Freeze режима
+                local freeze_dep = bt_dep:dependency_box()
+                freeze_dep:setup_dependencies({ { bt_dropdown, "Freeze" } })
+                
+                -- Слайдер для Freeze режима - интервал обновления
+                freeze_dep:slider({
+                    name = "Update",
+                    flag = "bt_freeze_update",
+                    min = 50,
+                    max = 5000,
+                    default = config.BackTrack.FreezeUpdate or 500,
+                    interval = 50,
+                    suffix = "ms",
+                    callback = function(v)
+                        config.BackTrack.FreezeUpdate = v
+                        bt.freeze_delay = math.max(0.05, math.min(v / 1000, 5)) -- конвертируем в секунды
+                    end,
+                })
+
+                -- Visualise секция
+                local vis_dropdown = bt_right:dropdown({
+                    name = "Material",
+                    flag = "bt_vis_material",
+                    items = {"Neon", "ForceField", "Glass"},
+                    default = config.BackTrack.Visualise.Material,
+                    callback = function(material)
+                        config.BackTrack.Visualise.Material = material
+                        update_clone_visuals()
+                    end,
+                })
+                
+                bt_right:slider({
+                    name = "Trs",
+                    flag = "bt_vis_transparency",
+                    min = 0,
+                    max = 1,
+                    default = config.BackTrack.Visualise.Transparency,
+                    interval = 0.1,
+                    callback = function(v)
+                        config.BackTrack.Visualise.Transparency = v
+                        update_clone_visuals()
+                    end,
+                })
+
+                -- auto-start if enabled from config
+                if bt.enabled and bt_toggle.set then
+                    bt_toggle.set(true)
+                end
+                -- backtrack system end
+            
             -- Toggle + Keybind (сверху секции)
             local toggle = left:toggle({
                 name = "Enabled",
@@ -1121,6 +1531,11 @@ do
                 Sets = { X = 0, Y = 0, Z = 0 },
                 DivisionMul = 1,
             }
+            -- BackTrackAim default
+            config.Aimbot.BackTrackAim = (config.Aimbot.BackTrackAim == true) and true or false
+            -- Prediction colors
+            config.Aimbot.PredColor = config.Aimbot.PredColor or Color3.new(1, 0.4, 0.4)
+            config.Aimbot.BTPredColor = config.Aimbot.BTPredColor or Color3.new(0.4, 0.8, 1)
             -- Tweaks defaults
             config.Tweaks = config.Tweaks or {
                 AutoAir = false,
@@ -1145,13 +1560,39 @@ do
             local aim_dep = aim_col:dependency_box()
             aim_dep:setup_dependencies({ { aim_toggle, true } })
 
-            -- Показ луча предикшена (видим только при Enabled) 
+            -- BackTrackAim: прицел по клону BackTrack
             aim_dep:toggle({
+                name = "BackTrackAim",
+                flag = "aim_bt",
+                default = (config.Aimbot.BackTrackAim or false),
+                callback = function(on)
+                    config.Aimbot.BackTrackAim = on
+                end
+            })
+
+            -- Показ луча предикшена (видим только при Enabled) 
+            local sp_toggle = aim_dep:toggle({
                 name = "ShowPrediction",
                 flag = "aim_show_pred",
                 default = config.Aimbot.ShowPrediction,
                 callback = function(on)
                     config.Aimbot.ShowPrediction = on
+                end
+            })
+            :colorpicker({
+                name = "PredClr",
+                flag = "aim_pred_clr",
+                color = config.Aimbot.PredColor,
+                callback = function(color)
+                    config.Aimbot.PredColor = color
+                end
+            })
+            :colorpicker({
+                name = "BTPred",
+                flag = "aim_bt_pred_clr",
+                color = config.Aimbot.BTPredColor,
+                callback = function(color)
+                    config.Aimbot.BTPredColor = color
                 end
             })
 
@@ -1277,7 +1718,7 @@ do
                     default = (config.Aimbot.Prediction.DivisionMul and math.min(config.Aimbot.Prediction.DivisionMul, 0.2)) or 0.05,
                     interval = 0.001,
                     callback = function(v)
-                        config.Aimbot.Prediction.DivisionMul = (_G.RebuildUtility and _G.RebuildUtility:Clamp(v, 0, 0.2)) or math.max(0, math.min(0.2, v))
+                        config.Aimbot.Prediction.DivisionMul = (utility and utility:Clamp(v, 0, 0.2)) or math.max(0, math.min(0.2, v))
                     end
                 })
 
@@ -1320,6 +1761,51 @@ do
 
             -- Tweaks UI
             do
+                -- autoreload system start
+                local rs = game:GetService("RunService")
+                local players = game:GetService("Players")
+                local rep = game:GetService("ReplicatedStorage")
+
+                local autoreload_conn
+                local lastReload = 0
+
+                local function start_autoreload()
+                    if autoreload_conn then return end
+                    autoreload_conn = rs.Heartbeat:Connect(function()
+                        local lp = players.LocalPlayer
+                        local char = lp and lp.Character
+                        if not char then return end
+
+                        local tool = char:FindFirstChildWhichIsA("Tool")
+                        if not tool then return end
+                        local ammo = tool:FindFirstChild("Ammo")
+                        if not ammo or not ammo.Value then return end
+
+                        if ammo.Value <= 0 then
+                            local now = time()
+                            if (now - lastReload) >= 1 then
+                                local mainEvent = rep:FindFirstChild("MainEvent")
+                                if mainEvent then
+                                    mainEvent:FireServer("Reload", tool)
+                                    lastReload = now
+                                end
+                            end
+                        end
+                    end)
+                end
+
+                local function stop_autoreload()
+                    if autoreload_conn then
+                        autoreload_conn:Disconnect()
+                        autoreload_conn = nil
+                    end
+                end
+
+                if (config.Tweaks and config.Tweaks.AutoReload) then
+                    start_autoreload()
+                end
+                -- autoreload system end
+
                 tweaks_col:toggle({
                     name = "AutoAir",
                     flag = "tw_autoair",
@@ -1338,13 +1824,26 @@ do
                         config.Tweaks.AutoShoot = on
                     end
                 })
+                tweaks_col:toggle({
+                    name = "AutoReload",
+                    flag = "tw_autoreload",
+                    default = (config.Tweaks and config.Tweaks.AutoReload) or false,
+                    callback = function(on)
+                        config.Tweaks = config.Tweaks or {}
+                        config.Tweaks.AutoReload = on
+                        if on then
+                            start_autoreload()
+                        else
+                            stop_autoreload()
+                        end
+                    end
+                })
             end
         end
 
         -- Общие функции Resolver для Aimbot (доступны всем подпроцессам)
         -- хранение предыдущей позиции для режимов Recalc/CalcCFrame
         local resolver_state = { lastPos = nil, lastTick = 0 }
-        local utility = _G.RebuildUtility
         
         local function get_resolved_velocity(part, humanoid)
             local mode = (config.Aimbot.Resolver and config.Aimbot.Resolver.Mode) or "Velocity"
@@ -1461,7 +1960,13 @@ do
                 local tg = TargetingAPI.get()
                 if not tg then return nil end
                 local sel = (config.Aimbot.SelectedPart or "Head")
-                local part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
+                local part
+                if config.Aimbot.BackTrackAim and BackTrackAPI and BackTrackAPI.get_part then
+                    part = BackTrackAPI.get_part(tg.player, sel)
+                end
+                if not part then
+                    part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
+                end
                 return part and part.Position or nil
             end
 
@@ -1488,16 +1993,21 @@ do
         end
         -- aimbot namecall hook end
 
-        -- aimbot __index hook start (Silent Aim совместимый)
+        -- aimbot __index hook start
         do
-            local utility = _G.RebuildUtility
             local function get_target_part()
                 if not (config.Aimbot and config.Aimbot.Enabled) then return nil end
                 if not TargetingAPI or not TargetingAPI.get then return nil end
                 local tg = TargetingAPI.get()
                 if not tg then return nil end
                 local sel = (config.Aimbot.SelectedPart or "Head")
-                local part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
+                local part
+                if config.Aimbot.BackTrackAim and BackTrackAPI and BackTrackAPI.get_part then
+                    part = BackTrackAPI.get_part(tg.player, sel)
+                end
+                if not part then
+                    part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
+                end
                 return part
             end
 
@@ -1516,7 +2026,12 @@ do
                         local humanoid = nil
                         if tg then
                             local sel = (config.Aimbot.SelectedPart or "Head")
-                            part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
+                            if config.Aimbot.BackTrackAim and BackTrackAPI and BackTrackAPI.get_part then
+                                part = BackTrackAPI.get_part(tg.player, sel)
+                            end
+                            if not part then
+                                part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
+                            end
                             humanoid = tg.humanoid
                         end
                         if part then
@@ -1556,78 +2071,20 @@ do
 
         -- aimbot prediction beam start
         do
-            local vis = { beam = nil, a0 = nil, a1 = nil, part = nil }
+            local vis = { line = nil }
 
-            local function find_hand()
-                local char = vars.lp and vars.lp.Character
-                if not char then return nil end
-                return char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
-            end
-
+            -- создаём Drawing линию для prediction beam
             local function ensure_beam()
-                -- валидируем каждый кадр, т.к. после смерти Character меняется
-                local hand = find_hand()
-                if not hand or not hand:IsA("BasePart") then
-                    if vis.beam then vis.beam.Enabled = false end
-                    return false
+                if not Drawing then return false end -- проверка на Drawing API
+                if not vis.line then
+                    vis.line = Drawing.new('Line')
+                    vis.line.Thickness = 2
+                    vis.line.Transparency = 0.8
+                    vis.line.Color = color(1, 0.4, 0.4) -- дефолтный цвет
+                    vis.line.Visible = false
                 end
-
-                -- attachment on hand (всегда убеждаемся, что он на актуальной руке)
-                local a0 = hand:FindFirstChild("RB_Att0")
-                if not a0 then
-                    a0 = Instance.new("Attachment")
-                    a0.Name = "RB_Att0"
-                    a0.Parent = hand
-                end
-
-                -- world target part + attachment
-                local part = vis.part
-                if not part then
-                    part = Instance.new("Part")
-                    part.Name = "RB_PredPoint"
-                    part.Anchored = true
-                    part.CanCollide = false
-                    part.Transparency = 1
-                    part.Size = Vector3.new(0.2, 0.2, 0.2)
-                    part.Parent = vars.ws
-                end
-                local a1 = part:FindFirstChild("RB_Att1")
-                if not a1 then
-                    a1 = Instance.new("Attachment")
-                    a1.Name = "RB_Att1"
-                    a1.Parent = part
-                end
-
-                local beam = vis.beam
-                if not beam then
-                    beam = Instance.new("Beam")
-                    beam.Name = "RB_PredBeam"
-                    beam.Attachment0 = a0
-                    beam.Attachment1 = a1
-                    beam.Width0 = 0.12
-                    beam.Width1 = 0.12
-                    beam.Color = ColorSequence.new(config.Targeting.FovColor or Color3.new(1, 0.4, 0.4))
-                    beam.Transparency = NumberSequence.new(0)
-                    beam.LightEmission = 0.6
-                    beam.Enabled = false
-                    beam.Parent = a0
-                else
-                    -- перепривязка к новой руке/точке при каждом кадре
-                    beam.Attachment0 = a0
-                    beam.Attachment1 = a1
-                    if beam.Parent ~= a0 then beam.Parent = a0 end
-                end
-
-                vis.a0, vis.a1, vis.part, vis.beam = a0, a1, part, beam
-                return true
+                return vis.line ~= nil
             end
-
-            -- перепривязка визуала при респавне локального игрока
-            vars.lp.CharacterAdded:Connect(function()
-                -- сбросим кэш, чтобы ensure_beam заново привязал к новой руке
-                vis.a0 = nil
-                if vis.beam then vis.beam.Enabled = false end
-            end)
 
             local function get_predicted_pos_for_visual()
                 if not (config.Aimbot and config.Aimbot.Enabled and config.Aimbot.ShowPrediction) then return nil end
@@ -1635,34 +2092,99 @@ do
                 local tg = TargetingAPI.get()
                 if not tg then return nil end
                 local sel = (config.Aimbot.SelectedPart or "Head")
-                local part = utility:GetBodyPart(tg.character, sel) or tg.rootpart
-                if not part then return nil end
-                return get_prediction_position(part, tg.humanoid)
+                -- живая часть цели (резерв)
+                local livePart = utility:GetBodyPart(tg.character, sel) or tg.rootpart
+                local chosen = livePart
+                -- для визуала используем клон только если включён прицел в BackTrack (BackTrackAim)
+                if (config.Aimbot and config.Aimbot.BackTrackAim) and BackTrackAPI and BackTrackAPI.get_part then
+                    local btPart = BackTrackAPI.get_part(tg.player, sel)
+                    if btPart then
+                        -- wallcheck: рейкастом от правой руки локального игрока до btPart
+                        local char = vars.lp and vars.lp.Character
+                        local hand = char and (char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm") or char:FindFirstChild("RightLowerArm") or char:FindFirstChild("RightUpperArm"))
+                        local rp = char and char:FindFirstChild("HumanoidRootPart")
+                        local origin = (hand and hand.Position) or (rp and rp.Position) or vars.camera.CFrame.Position
+                        local ws = (vars.ws or workspace)
+                        local params = RaycastParams.new()
+                        params.FilterType = Enum.RaycastFilterType.Exclude
+                        params.FilterDescendantsInstances = {char, tg.character}
+                        local dir = btPart.Position - origin
+                        local hit = ws:Raycast(origin, dir, params)
+                        local clear = (not hit) or hit.Instance == btPart or (hit.Instance and btPart and hit.Instance:IsDescendantOf(btPart))
+                        if clear then
+                            chosen = btPart
+                        end
+                    end
+                end
+                if not chosen then return nil end
+                return get_prediction_position(chosen, tg.humanoid)
             end
 
-            run.RenderStepped:Connect(function()
+            vars.rs.RenderStepped:Connect(function()
                 if config.Aimbot.Enabled and config.Aimbot.ShowPrediction then
                     local p = get_predicted_pos_for_visual()
                     if p and ensure_beam() then
-                        vis.part.CFrame = CFrame.new(p)
-                        vis.beam.Enabled = true
+                        -- позиция мыши через UIS (как у FOV / без смещения)
+                        local ml = vars.uis:GetMouseLocation()
+                        local mousePos = vec2(ml.X, ml.Y)
+                        
+                        -- конвертировать 3D позицию цели в 2D экранные координаты
+                        local screenPos, onScreen = vars.camera:WorldToViewportPoint(p)
+                        
+                        if onScreen then
+                            local targetPos = vec2(screenPos.X, screenPos.Y)
+                            
+                            -- настроить линию
+                            vis.line.From = mousePos
+                            vis.line.To = targetPos
+                            
+                            -- выбрать цвет луча: проверяем есть ли BackTrack клон для текущей цели
+                            local tg = TargetingAPI and TargetingAPI.get and TargetingAPI.get()
+                            local useBT = false
+                            if tg and config.Aimbot.BackTrackAim and BackTrackAPI and BackTrackAPI.get_part then
+                                local sel = (config.Aimbot.SelectedPart or "Head")
+                                local btPart = BackTrackAPI.get_part(tg.player, sel)
+                                if btPart then
+                                    -- wallcheck для цвета: если bt виден, подсвечиваем BTPredColor
+                                    local char = vars.lp and vars.lp.Character
+                                    local hand = char and (char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm") or char:FindFirstChild("RightLowerArm") or char:FindFirstChild("RightUpperArm"))
+                                    local rp = char and char:FindFirstChild("HumanoidRootPart")
+                                    local origin = (hand and hand.Position) or (rp and rp.Position) or vars.camera.CFrame.Position
+                                    local ws = (vars.ws or workspace)
+                                    local params = RaycastParams.new()
+                                    params.FilterType = Enum.RaycastFilterType.Exclude
+                                    params.FilterDescendantsInstances = {char, tg.character}
+                                    local dir = btPart.Position - origin
+                                    local hit = ws:Raycast(origin, dir, params)
+                                    useBT = (not hit) or hit.Instance == btPart or (hit.Instance and btPart and hit.Instance:IsDescendantOf(btPart))
+                                end
+                            end
+                            
+                            local clr = useBT and (config.Aimbot.BTPredColor or color(0.4, 0.8, 1)) or (config.Aimbot.PredColor or color(1, 0.4, 0.4))
+                            vis.line.Color = clr
+                            vis.line.Visible = true
+                        else
+                            vis.line.Visible = false
+                        end
                     else
-                        if vis.beam then vis.beam.Enabled = false end
+                        if vis.line then vis.line.Visible = false end
                     end
                 else
-                    if vis.beam then vis.beam.Enabled = false end
+                    if vis.line then vis.line.Visible = false end
                 end
             end)
+        end
+        -- aimbot prediction beam end
 
-            -- Tweaks AutoShoot: держим LMB/Activate при наличии оружия и цели
+        -- Tweaks AutoShoot: держим LMB/Activate при наличии оружия и цели
             local autos = { busy = false, last = 0 }
-            run.RenderStepped:Connect(function()
+            vars.rs.RenderStepped:Connect(function()
                 if not (config.Tweaks and config.Tweaks.AutoShoot) then return end
                 if autos.busy or (os.clock() - autos.last) < 0.1 then return end
                 -- нужна валидная цель
                 local tgt = TargetingAPI and TargetingAPI.get and TargetingAPI.get()
                 if not tgt or not tgt.character or not tgt.rootpart then return end
-                local ok_checks = (targeting and targeting.update_checks and targeting.update_checks())
+                local ok_checks = (TargetingAPI and TargetingAPI.update_checks and TargetingAPI.update_checks())
                 if ok_checks == false then return end
                 local ch = vars.lp and vars.lp.Character
                 if not ch then return end
@@ -1675,13 +2197,33 @@ do
                 end
                 task.delay(0.05, function() autos.busy = false end)
             end)
-        end
-        -- aimbot prediction beam end
+        -- tweaks autoshoot end
 
         -- tweaks autoair start
         do
             -- Проверка по вертикальной скорости цели и активация оружия
             local aa = { busy = false, lastShot = 0 }
+
+            -- wallcheck helper: проверка прямой видимости до цели
+            local function has_line_of_sight(targetChar, targetPart)
+                if not targetChar or not targetPart then return false end
+                local cam = vars.ws and vars.ws.CurrentCamera
+                local origin = cam and cam.CFrame and cam.CFrame.Position
+                if not origin then
+                    local lpChar = vars.lp and vars.lp.Character
+                    local head = lpChar and lpChar:FindFirstChild("Head")
+                    origin = head and head.Position
+                end
+                if not origin then return false end
+                local targetPos = targetPart.Position
+                local dir = targetPos - origin
+                local params = RaycastParams.new()
+                params.FilterType = Enum.RaycastFilterType.Exclude
+                params.FilterDescendantsInstances = { (vars.lp and vars.lp.Character), targetChar }
+                local result = vars.ws:Raycast(origin, dir.Unit * dir.Magnitude, params)
+                if not result then return true end
+                return result.Instance:IsDescendantOf(targetChar)
+            end
 
             local function simulate_shot_legacy()
                 -- 1) VirtualUser (надежнее для игр с проверками ввода)
@@ -1694,11 +2236,12 @@ do
                     task.wait(0.02)
                     vars.vu:Button1Up(Vector2.new(), cf)
                     ok = true
-                end)
+                end)    
                 if ok then return true end
 
                 -- 2) Эксплойт API: mouse1click
-                local env = rawget(_G, "getgenv") and getgenv() or _G
+                local getgenv_fn = rawget(_G, "getgenv")
+                local env = (type(getgenv_fn) == "function" and getgenv_fn()) or {}
                 local click = rawget(env, "mouse1click")
                 if type(click) == "function" then
                     pcall(click)
@@ -1724,8 +2267,11 @@ do
                 if not tgt.character or not tgt.rootpart then return end
                 
                 -- проверка валидности цели
-                local ok_checks = (targeting and targeting.update_checks and targeting.update_checks())
+                local ok_checks = (TargetingAPI and TargetingAPI.update_checks and TargetingAPI.update_checks())
                 if ok_checks == false then return end
+
+                -- wallcheck: не стреляем если цель за стеной
+                if not has_line_of_sight(tgt.character, tgt.rootpart) then return end
 
                 local vel = utility:GetVelocity(tgt.rootpart)
                 local vy = vel and vel.Y or 0
@@ -1744,7 +2290,6 @@ do
         end
         -- tweaks autoair end
     end
-    -- Rage tab end
 
     -- Misc tab start
     local misc_tab = window:tab({ name = "Misc" })
