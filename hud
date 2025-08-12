@@ -5359,11 +5359,12 @@ do
             end
 
             self.Connection = pg.DescendantAdded:Connect(function(obj)
-                if obj and obj.Name == "Bar" then
-                    pcall(function()
-                        obj.Parent = self:get_storage()
-                    end)
-                end
+                if not (obj and obj.Name == "Bar") then return end
+                local anc = obj:FindFirstAncestor("MainScreenGui")
+                if not anc then return end
+                pcall(function()
+                    obj.Parent = self:get_storage()
+                end)
             end)
         end
     end
@@ -5418,32 +5419,24 @@ do
         end
 
         -- утилита: создать бар
-        function cfg:_create_bar(parent, label_text, icon_id, color3)
+        function cfg:_create_bar(parent, label_text, _icon_id, color3)
             local bar = library:create("Frame", {
                 Parent = parent,
                 BackgroundTransparency = 1,
-                Size = dim2(1, 0, 0, 28),
+                Size = dim2(1, 0, 0, 24),
             })
-
-            local bg = library:create("Frame", {
+            
+            -- минимальная полоса без иконок и шапки
+            local line = library:create("Frame", {
                 Parent = bar,
-                BackgroundColor3 = themes.preset.outline,
-                BorderSizePixel = 0,
-                Size = dim2(1, 0, 0, 8),
-            })
-            library:apply_theme(bg, "outline", "BackgroundColor3")
-
-            local inline = library:create("Frame", {
-                Parent = bg,
                 BackgroundColor3 = themes.preset.inline,
                 BorderSizePixel = 0,
-                Position = dim2(0, 1, 0, 1),
-                Size = dim2(1, -2, 1, -2),
+                Size = dim2(1, 0, 0, 6),
             })
-            library:apply_theme(inline, "inline", "BackgroundColor3")
+            library:apply_theme(line, "inline", "BackgroundColor3")
 
             local fill = library:create("Frame", {
-                Parent = inline,
+                Parent = line,
                 BackgroundColor3 = color3,
                 BorderSizePixel = 0,
                 Size = dim2(0, 0, 1, 0),
@@ -5457,27 +5450,12 @@ do
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Text = label_text .. ": 0/0",
                 TextSize = 12,
-                Position = dim2(0, 0, 0, 10),
+                Position = dim2(0, 0, 0, 8),
                 Size = dim2(1, 0, 0, 16),
             })
             library:apply_theme(text, "text", "TextColor3")
 
-            local icon_holder = library:create("Frame", {
-                Parent = bar,
-                BackgroundTransparency = 1,
-                Size = dim2(0, 16, 0, 16),
-                Position = dim2(1, -18, 0, 6),
-            })
-
-            library:create("ImageLabel", {
-                Parent = icon_holder,
-                BackgroundTransparency = 1,
-                Size = dim2(1, 0, 1, 0),
-                Image = "rbxassetid://" .. tostring(icon_id),
-                ImageColor3 = color3,
-            })
-
-            return {root = bar, bg = bg, inline = inline, fill = fill, text = text}
+            return {root = bar, line = line, fill = fill, text = text}
         end
 
         -- утилита: обновить бар
