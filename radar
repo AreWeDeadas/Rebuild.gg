@@ -433,10 +433,10 @@ function library:apply_theme(instance, theme, property)
 end
 
 function library:update_theme(theme, color)
-	for _, property in next, themes.utility[theme] do
-		for m, object in next, property do
-			if object[_] == themes.preset[theme] or object.ClassName == "UIGradient" then
-				object[_] = color
+	for property, objects in next, themes.utility[theme] do
+		for _, object in next, objects do
+			if object[property] == themes.preset[theme] or object.ClassName == "UIGradient" then
+				object[property] = color
 			end
 		end
 	end
