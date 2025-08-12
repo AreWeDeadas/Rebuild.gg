@@ -1414,6 +1414,7 @@ function library:radar(options)
 		dots = {},
 		size = options.size or 200,
 		clamp = options.clamp ~= false,
+		zoom = 1,
 	}
 	
 	-- radar container
@@ -1521,7 +1522,7 @@ function library:radar(options)
 			Size = dim_offset(4, 4),
 			AnchorPoint = vec2(0.5, 0.5),
 			Position = dim2(0.5, 0, 0.5, 0),
-			BackgroundColor3 = rgb(255, 100, 100),
+			BackgroundColor3 = themes.preset.accent,
 			BorderSizePixel = 0,
 			ZIndex = 3,
 		})
@@ -1562,18 +1563,15 @@ function library:radar(options)
 			local relative = cf:PointToObjectSpace(position)
 			
 			-- scale to radar size
-			local scale = cfg.size / 100
+			local scale = (cfg.size / 100) * cfg.zoom
 			local x = relative.X * scale
 			local z = relative.Z * scale
 			
 			-- apply clamping if enabled
 			if cfg.clamp then
-				local max_dist = cfg.size / 2 - 4
-				local dist = sqrt(x * x + z * z)
-				if dist > max_dist then
-					x = x / dist * max_dist
-					z = z / dist * max_dist
-				end
+				local half = cfg.size / 2 - 4
+				x = math.clamp(x, -half, half)
+				z = math.clamp(z, -half, half)
 			end
 			
 			-- center position
@@ -1594,6 +1592,11 @@ function library:radar(options)
 	function cfg.set_background_transparency(transparency)
 		radar_background.BackgroundTransparency = transparency
 		accent.BackgroundTransparency = transparency
+	end
+	
+	
+	function cfg.set_zoom(value)
+		cfg.zoom = value or 1
 	end
 	
 	function cfg.set_clamp(bool)
