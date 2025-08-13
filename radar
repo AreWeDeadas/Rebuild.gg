@@ -1620,13 +1620,20 @@ function library:custom_hud(options)
 		hud_type = options.hud_type or "Rust",
 		size = options.size or dim2(0, 280, 0, 32),
 		position = options.position or dim2(0, 250, 0, 300),
-		original_hud_disabled = false,
-		screen_gui = nil,
+		visible = false,
 		bars = {},
 		connections = {},
+		original_hud_disabled = false,
+		original_connection = nil,
+		storage = nil,
+		colors = {
+			health_bar = rgb(185, 91, 81),
+			armor_bar = rgb(79, 140, 178),
+			text = rgb(255, 255, 255),
+			text_stroke = rgb(0, 0, 0),
+		},
 	}
 	
-	-- custom hud container
 	local hud_outline = library:create("Frame", {
 		Parent = sgui,
 		Name = "custom_hud",
@@ -1863,8 +1870,8 @@ function library:custom_hud(options)
 			Size = dim2(1, 0, 1, 0),
 			FontFace = library.font,
 			TextSize = 11,
-			TextColor3 = rgb(255, 255, 255),
-			TextStrokeColor3 = rgb(0, 0, 0),
+			TextColor3 = cfg.colors.text,
+			TextStrokeColor3 = cfg.colors.text_stroke,
 			TextStrokeTransparency = 0,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextYAlignment = Enum.TextYAlignment.Center,
@@ -1872,30 +1879,12 @@ function library:custom_hud(options)
 			ZIndex = 2,
 		})
 		
-		-- icon/label
-		local bar_label = library:create("TextLabel", {
-			Parent = bar_container,
-			Name = "Label",
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Size = dim2(0, 20, 0, 12),
-			Position = dim2(0, 2, 0.5, -6),
-			FontFace = library.font,
-			TextSize = 10,
-			TextColor3 = rgb(200, 200, 200),
-			TextStrokeColor3 = rgb(0, 0, 0),
-			TextStrokeTransparency = 0.5,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextYAlignment = Enum.TextYAlignment.Center,
-			Text = name:sub(1, 1),
-			ZIndex = 3,
-		})
+		-- label removed (not needed)
 		
 		return {
 			main = bar_container,
 			bar = bar_fill,
 			text = bar_text,
-			label = bar_label,
 		}
 	end
 	
@@ -1941,10 +1930,24 @@ function library:custom_hud(options)
 		return nil
 	end
 	
+	-- update bar colors
+	function cfg.update_bar_colors()
+		if cfg.bars.health then
+			cfg.bars.health.bar.BackgroundColor3 = cfg.colors.health_bar
+			cfg.bars.health.text.TextColor3 = cfg.colors.text
+			cfg.bars.health.text.TextStrokeColor3 = cfg.colors.text_stroke
+		end
+		if cfg.bars.armor then
+			cfg.bars.armor.bar.BackgroundColor3 = cfg.colors.armor_bar
+			cfg.bars.armor.text.TextColor3 = cfg.colors.text
+			cfg.bars.armor.text.TextStrokeColor3 = cfg.colors.text_stroke
+		end
+	end
+	
 	-- create rust hud
 	function cfg.create_rust_hud()
-		cfg.bars.health = cfg.create_bar("Health", rgb(185, 91, 81))
-		cfg.bars.armor = cfg.create_bar("Armor", rgb(79, 140, 178))
+		cfg.bars.health = cfg.create_bar("Health", cfg.colors.health_bar)
+		cfg.bars.armor = cfg.create_bar("Armor", cfg.colors.armor_bar)
 		
 		cfg.refresh_bars()
 		cfg.wire_events()
