@@ -38,65 +38,65 @@ local custom_hud = library:custom_hud({
 	hud_type = "Rust"
 })
 --
+
+-- targeting system start
 do
-    local vcol = Visuals:column()
-    local hud_sec = vcol:section({ name = "hud" })
-
-    -- toggle to control custom hud visibility
-    local hud_toggle = hud_sec:toggle({
-        name = "Enabled",
-        flag = "CustomUi",
-        default = false,
-        callback = function(on)
-            custom_hud.set_visible(on)
-        end,
-    })
-
-    -- dependency box shows colorpickers only when CustomUi is enabled
-    local dep = hud_sec:dependency_box({})
-    dep:setup_dependencies({ { "CustomUi", true } })
-
-    dep:colorpicker({
-        name = "Health",
-        flag = "HudHealthColor",
-        color = custom_hud.colors.health_bar,
-        callback = function(col)
-            custom_hud.colors.health_bar = col
-            custom_hud.update_bar_colors()
-        end,
-    })
-
-    dep:colorpicker({
-        name = "Armor",
-        flag = "HudArmorColor",
-        color = custom_hud.colors.armor_bar,
-        callback = function(col)
-            custom_hud.colors.armor_bar = col
-            custom_hud.update_bar_colors()
-        end,
-    })
-
-    dep:colorpicker({
-        name = "Text",
-        flag = "HudTextColor",
-        color = custom_hud.colors.text,
-        callback = function(col)
-            custom_hud.colors.text = col
-            custom_hud.update_bar_colors()
-        end,
-    })
-
-    dep:colorpicker({
-        name = "Stroke",
-        flag = "HudStrokeColor",
-        color = custom_hud.colors.text_stroke,
-        callback = function(col)
-            custom_hud.colors.text_stroke = col
-            custom_hud.update_bar_colors()
-        end,
-    })
+	-- framework function
+	local framework = {}
+	
+	local current_target = nil
+	
+	function framework:selectTarget() 
+		print("[Targeting] selectTarget called")
+		
+		if current_target then
+			-- Release current target
+			print("[Targeting] Releasing target: " .. current_target.Name)
+			current_target = nil
+			print("[Targeting] Target cleared")
+		else
+			-- Acquire new target
+			print("[Targeting] Acquiring target...")
+			local closest_player = nil
+			local closest_distance = math.huge
+			
+			for _, player in pairs(game.Players:GetPlayers()) do
+				if player ~= game.Players.LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+					local distance = (player.Character.HumanoidRootPart.Position - game.Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+					if distance < closest_distance then
+						closest_distance = distance
+						closest_player = player
+					end
+				end
+			end
+			
+			if closest_player then
+				current_target = closest_player
+				print("[Targeting] Target acquired: " .. current_target.Name .. " (Distance: " .. math.floor(closest_distance) .. ")")
+			else
+				print("[Targeting] No target found")
+			end
+		end
+	end
+	
+	-- ui elements
+	local rage_col = Aimbot:column()
+	local targeting_sec = rage_col:section({ name = "targeting" })
+	
+	local targeting_toggle = targeting_sec:toggle({
+		name = "Enabled",
+		flag = "Targeting_Enabled",
+		default = false,
+	}):keybind({
+		name = "Target Select",
+		flag = "Target_Select_Bind",
+		default = "t",
+		callback = function()
+			framework:selectTarget()
+		end,
+	})
 end
---
+-- targeting system end
 
 getgenv().load_config = function(name)
 	library:load_config(readfile(library.directory .. "/configs/" .. name .. ".cfg"))
