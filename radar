@@ -1948,7 +1948,8 @@ function library:custom_hud(options)
 	function cfg.create_rust_hud()
 		cfg.bars.health = cfg.create_bar("Health", cfg.colors.health_bar)
 		cfg.bars.armor = cfg.create_bar("Armor", cfg.colors.armor_bar)
-		
+		-- ensure latest palette is applied on (re)build
+		cfg.update_bar_colors()
 		cfg.refresh_bars()
 		cfg.wire_events()
 	end
@@ -2014,6 +2015,8 @@ function library:custom_hud(options)
 			if cfg.hud_type == "Rust" then
 				cfg.create_rust_hud()
 			end
+			-- apply current colors immediately
+			cfg.update_bar_colors()
 		else
 			cfg.enable_original_hud()
 		end
