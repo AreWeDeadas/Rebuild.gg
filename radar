@@ -1614,6 +1614,428 @@ function library:radar(options)
 	return cfg
 end
 
+function library:custom_hud(options)
+	local cfg = {
+		enabled = false,
+		hud_type = options.hud_type or "Rust",
+		size = options.size or dim2(0, 230, 0, 70),
+		position = options.position or dim2(0, 250, 0, 300),
+		original_hud_disabled = false,
+		screen_gui = nil,
+		bars = {},
+		connections = {},
+	}
+	
+	-- custom hud container
+	local hud_outline = library:create("Frame", {
+		Parent = sgui,
+		Name = "custom_hud",
+		BorderColor3 = rgb(0, 0, 0),
+		Position = cfg.position,
+		Size = dim2(cfg.size.X.Scale, cfg.size.X.Offset + 4, cfg.size.Y.Scale, cfg.size.Y.Offset + 4),
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.outline,
+		Visible = false,
+	})
+	library:apply_theme(hud_outline, "outline", "BackgroundColor3")
+	hud_outline.Position = dim_offset(hud_outline.AbsolutePosition.X, hud_outline.AbsolutePosition.Y)
+	library:draggify(hud_outline)
+	
+	local hud_inline = library:create("Frame", {
+		Parent = hud_outline,
+		Name = "",
+		Position = dim_offset(1, 1),
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, -2, 1, -2),
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.inline,
+	})
+	library:apply_theme(hud_inline, "inline", "BackgroundColor3")
+	
+	local hud_background = library:create("Frame", {
+		Parent = hud_inline,
+		Name = "",
+		Position = dim_offset(1, 1),
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, -2, 1, -2),
+		BorderSizePixel = 0,
+		BackgroundColor3 = rgb(255, 255, 255),
+		ClipsDescendants = true,
+	})
+	
+	local UIGradient = library:create("UIGradient", {
+		Parent = hud_background,
+		Name = "",
+		Rotation = 90,
+		Color = rgbseq({
+			rgbkey(0, rgb(41, 41, 55)),
+			rgbkey(1, rgb(35, 35, 47)),
+		}),
+	})
+	library:apply_theme(UIGradient, "contrast", "Color")
+	
+	-- accent bar
+	local accent = library:create("Frame", {
+		Parent = hud_outline,
+		Name = "",
+		Position = dim_offset(2, 2),
+		BorderColor3 = rgb(0, 0, 0),
+		Size = dim2(1, -4, 0, 2),
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.accent,
+	})
+	library:apply_theme(accent, "accent", "BackgroundColor3")
+	
+	local UIGradient2 = library:create("UIGradient", {
+		Parent = accent,
+		Name = "",
+		Rotation = 90,
+		Color = rgbseq({
+			rgbkey(0, rgb(255, 255, 255)),
+			rgbkey(1, rgb(167, 167, 167)),
+		}),
+	})
+	
+	-- bars holder
+	local bars_holder = library:create("Frame", {
+		Parent = hud_background,
+		Name = "BarsHolder",
+		BackgroundTransparency = 1,
+		Size = dim2(1, 0, 1, 0),
+		Position = dim2(0, 0, 0, 0),
+	})
+	
+	library:create("UIListLayout", {
+		Parent = bars_holder,
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		Padding = dim(0, 6),
+	})
+	
+	library:create("UIPadding", {
+		Parent = bars_holder,
+		PaddingTop = dim(0, 6),
+		PaddingLeft = dim(0, 6),
+		PaddingRight = dim(0, 6),
+		PaddingBottom = dim(0, 6),
+	})
+	
+	-- original hud management
+	function cfg.get_original_bar()
+		local pg = lp:FindFirstChild("PlayerGui")
+		if not pg then return nil end
+		local msg = pg:FindFirstChild("MainScreenGui")
+		if not msg then return nil end
+		return msg:FindFirstChild("Bar")
+	end
+	
+	function cfg.get_storage()
+		if cfg.storage and cfg.storage.Parent then
+			return cfg.storage
+		end
+		cfg.storage = rs:FindFirstChild("SimpleBotHUDStorage") or library:create("Folder", {
+			Name = "SimpleBotHUDStorage",
+			Parent = rs,
+		})
+		return cfg.storage
+	end
+	
+	function cfg.disable_original_hud()
+		if cfg.original_hud_disabled then return end
+		cfg.original_hud_disabled = true
+		
+		if cfg.original_connection then
+			cfg.original_connection:Disconnect()
+			cfg.original_connection = nil
+		end
+		
+		local pg = lp:FindFirstChild("PlayerGui")
+		local storage = cfg.get_storage()
+		if pg then
+			local msg = pg:FindFirstChild("MainScreenGui")
+			if msg then
+				for _, child in next, msg:GetChildren() do
+					if child.Name == "Bar" then
+						pcall(function()
+							child.Parent = storage
+						end)
+					end
+				end
+			end
+			
+			cfg.original_connection = library:connection(pg.DescendantAdded, function(obj)
+				if not cfg.original_hud_disabled then return end
+				if obj and obj.Name == "Bar" then
+					pcall(function()
+						obj.Parent = cfg.get_storage()
+					end)
+				end
+			end)
+		end
+	end
+	
+	function cfg.enable_original_hud()
+		if not cfg.original_hud_disabled then return end
+		cfg.original_hud_disabled = false
+		
+		if cfg.original_connection then
+			cfg.original_connection:Disconnect()
+			cfg.original_connection = nil
+		end
+		
+		local pg = lp:FindFirstChild("PlayerGui")
+		local msg = pg and pg:FindFirstChild("MainScreenGui") or nil
+		local storage = cfg.get_storage()
+		if msg and storage then
+			for _, child in next, storage:GetChildren() do
+				if child.Name == "Bar" then
+					pcall(function()
+						child.Parent = msg
+					end)
+				end
+			end
+		end
+	end
+	
+	-- bar creation
+	function cfg.create_bar(name, icon_id, color)
+		local bar_main = library:create("Frame", {
+			Parent = bars_holder,
+			Name = name,
+			BackgroundColor3 = rgb(0, 0, 0),
+			BackgroundTransparency = 0.4,
+			BorderSizePixel = 0,
+			Size = dim2(0, 200, 0, 30),
+			ZIndex = 1,
+		})
+		
+		library:create("UICorner", {
+			Parent = bar_main,
+			CornerRadius = dim(0, 4),
+		})
+		
+		local bar_fill = library:create("Frame", {
+			Parent = bar_main,
+			Name = name .. "Bar",
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+			Size = dim2(0, 0, 1, 0),
+			Position = dim2(0, 0, 0, 0),
+			ZIndex = 2,
+		})
+		
+		library:create("UICorner", {
+			Parent = bar_fill,
+			CornerRadius = dim(0, 3),
+		})
+		
+		local bar_text = library:create("TextLabel", {
+			Parent = bar_main,
+			Name = "BarText",
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Size = dim2(1, 0, 1, 0),
+			FontFace = library.font,
+			TextSize = 14,
+			TextColor3 = rgb(255, 255, 255),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			ZIndex = 5,
+			Text = "0",
+		})
+		
+		local icon_frame = library:create("Frame", {
+			Parent = bar_main,
+			Name = "Icon",
+			BackgroundColor3 = rgb(0, 0, 0),
+			BackgroundTransparency = 0.4,
+			BorderSizePixel = 0,
+			Size = dim2(0, 30, 0, 30),
+			Position = dim2(-0.16, 0, 0, 0),
+			ZIndex = 3,
+		})
+		
+		library:create("UICorner", {
+			Parent = icon_frame,
+			CornerRadius = dim(0, 4),
+		})
+		
+		local icon_image = library:create("ImageLabel", {
+			Parent = icon_frame,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Size = dim2(1, 0, 1, 0),
+			Image = "rbxassetid://" .. icon_id,
+			ZIndex = 4,
+		})
+		
+		return {
+			main = bar_main,
+			bar = bar_fill,
+			text = bar_text,
+		}
+	end
+	
+	-- bar update function
+	function cfg.set_bar(widget, val, max_val)
+		max_val = (max_val and max_val > 0) and max_val or 100
+		local ratio = clamp(val / max_val, 0, 1)
+		
+		tween_service:Create(
+			widget.bar,
+			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{Size = dim2(ratio, 0, 1, 0)}
+		):Play()
+		
+		widget.text.Text = tostring(floor(val))
+	end
+	
+	-- utility functions
+	function cfg.get_humanoid(char)
+		return char and char:FindFirstChildOfClass("Humanoid")
+	end
+	
+	function cfg.get_armor_object(char)
+		if not char then return nil end
+		local body_effects = char:FindFirstChild("BodyEffects")
+		if not body_effects then return nil end
+		
+		local armor_value = body_effects:FindFirstChild("Armor") or body_effects:FindFirstChild("Armour")
+		if armor_value and (armor_value:IsA("NumberValue") or armor_value:IsA("IntValue")) then 
+			return armor_value 
+		end
+		
+		for _, v in next, body_effects:GetDescendants() do
+			if (v.Name == "Armor" or v.Name == "Armour") and (v:IsA("NumberValue") or v:IsA("IntValue")) then 
+				return v 
+			end
+		end
+		
+		return nil
+	end
+	
+	-- create rust hud
+	function cfg.create_rust_hud()
+		cfg.bars.health = cfg.create_bar("HealthBar", "10723406795", rgb(185, 91, 81))
+		cfg.bars.armor = cfg.create_bar("ArmorBar", "10734951684", rgb(79, 140, 178))
+		
+		cfg.refresh_bars()
+		cfg.wire_events()
+	end
+	
+	-- refresh bars
+	function cfg.refresh_bars()
+		local char = lp.Character
+		local humanoid = cfg.get_humanoid(char)
+		local armor_obj = cfg.get_armor_object(char)
+		
+		if humanoid and cfg.bars.health then 
+			cfg.set_bar(cfg.bars.health, humanoid.Health, humanoid.MaxHealth) 
+		end
+		if armor_obj and cfg.bars.armor then 
+			cfg.set_bar(cfg.bars.armor, armor_obj.Value, 200)
+		end
+	end
+	
+	-- wire events
+	function cfg.wire_events()
+		-- clear old connections
+		for _, connection in next, cfg.connections do
+			if connection then
+				connection:Disconnect()
+			end
+		end
+		cfg.connections = {}
+		
+		local char = lp.Character or lp.CharacterAdded:Wait()
+		local humanoid = cfg.get_humanoid(char)
+		local armor_obj = cfg.get_armor_object(char)
+		
+		if humanoid and cfg.bars.health then
+			cfg.connections[#cfg.connections + 1] = library:connection(humanoid.HealthChanged, function(new_health)
+				cfg.set_bar(cfg.bars.health, new_health, humanoid.MaxHealth)
+			end)
+			cfg.connections[#cfg.connections + 1] = library:connection(humanoid:GetPropertyChangedSignal("MaxHealth"), function()
+				cfg.set_bar(cfg.bars.health, humanoid.Health, humanoid.MaxHealth)
+			end)
+		end
+		
+		if armor_obj and cfg.bars.armor then
+			cfg.connections[#cfg.connections + 1] = library:connection(armor_obj.Changed, function(new_value)
+				cfg.set_bar(cfg.bars.armor, tonumber(new_value) or armor_obj.Value, 200)
+			end)
+		end
+	end
+	
+	-- character respawn handling
+	cfg.connections[#cfg.connections + 1] = library:connection(lp.CharacterAdded, function()
+		task.wait(1)
+		cfg.wire_events()
+		cfg.refresh_bars()
+	end)
+	
+	-- main functions
+	function cfg.set_visible(bool)
+		cfg.enabled = bool
+		hud_outline.Visible = bool
+		
+		if bool then
+			cfg.disable_original_hud()
+			if cfg.hud_type == "Rust" then
+				cfg.create_rust_hud()
+			end
+		else
+			cfg.enable_original_hud()
+		end
+	end
+	
+	function cfg.set_hud_type(hud_type)
+		cfg.hud_type = hud_type
+		if cfg.enabled then
+			-- clear existing bars
+			for _, bar_data in next, cfg.bars do
+				if bar_data.main then
+					bar_data.main:Destroy()
+				end
+			end
+			cfg.bars = {}
+			
+			-- recreate with new type
+			if cfg.hud_type == "Rust" then
+				cfg.create_rust_hud()
+			end
+		end
+	end
+	
+	function cfg.clear()
+		for _, connection in next, cfg.connections do
+			if connection then
+				connection:Disconnect()
+			end
+		end
+		cfg.connections = {}
+		
+		for _, bar_data in next, cfg.bars do
+			if bar_data.main then
+				bar_data.main:Destroy()
+			end
+		end
+		cfg.bars = {}
+		
+		cfg.enable_original_hud()
+	end
+	
+	-- initial setup
+	if lp.Character then
+		task.wait(1)
+		cfg.wire_events()
+		cfg.refresh_bars()
+	end
+	
+	return cfg
+end
+
 
 function library:refresh_notifications()
 	for _, notif in next, library.notifications do
