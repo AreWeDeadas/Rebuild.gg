@@ -1618,7 +1618,7 @@ function library:custom_hud(options)
 	local cfg = {
 		enabled = false,
 		hud_type = options.hud_type or "Rust",
-		size = options.size or dim2(0, 120, 0, 70),
+		size = options.size or dim2(0, 280, 0, 32),
 		position = options.position or dim2(0, 250, 0, 300),
 		original_hud_disabled = false,
 		screen_gui = nil,
@@ -1701,8 +1701,8 @@ function library:custom_hud(options)
 		Parent = hud_background,
 		Name = "BarsHolder",
 		BackgroundTransparency = 1,
-		Size = dim2(1, -12, 1, -12),
-		Position = dim2(0, 6, 0, 6),
+		Size = dim2(1, -8, 1, -10),
+		Position = dim2(0, 4, 0, 5),
 	})
 	
 	library:create("UIListLayout", {
@@ -1710,7 +1710,7 @@ function library:custom_hud(options)
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
-		Padding = dim(0, 8),
+		Padding = dim(0, 4),
 	})
 	
 	-- original hud management
@@ -1797,18 +1797,40 @@ function library:custom_hud(options)
 			Name = name,
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
-			Size = dim2(0, 50, 0, 50),
+			Size = dim2(0.5, -2, 1, 0),
 		})
 		
-		-- bar background
-		local bar_bg = library:create("Frame", {
+		-- bar outline
+		local bar_outline = library:create("Frame", {
 			Parent = bar_container,
-			Name = "Background",
-			BackgroundColor3 = rgb(20, 20, 20),
-			BackgroundTransparency = 0.5,
+			Name = "Outline",
+			BackgroundColor3 = themes.preset.outline,
 			BorderSizePixel = 0,
 			Size = dim2(1, 0, 1, 0),
 			Position = dim2(0, 0, 0, 0),
+		})
+		library:apply_theme(bar_outline, "outline", "BackgroundColor3")
+		
+		-- bar inline
+		local bar_inline = library:create("Frame", {
+			Parent = bar_outline,
+			Name = "Inline",
+			BackgroundColor3 = themes.preset.inline,
+			BorderSizePixel = 0,
+			Size = dim2(1, -2, 1, -2),
+			Position = dim2(0, 1, 0, 1),
+		})
+		library:apply_theme(bar_inline, "inline", "BackgroundColor3")
+		
+		-- bar background
+		local bar_bg = library:create("Frame", {
+			Parent = bar_inline,
+			Name = "Background",
+			BackgroundColor3 = rgb(25, 25, 35),
+			BackgroundTransparency = 0.3,
+			BorderSizePixel = 0,
+			Size = dim2(1, -2, 1, -2),
+			Position = dim2(0, 1, 0, 1),
 		})
 		
 		-- bar fill
@@ -1816,10 +1838,20 @@ function library:custom_hud(options)
 			Parent = bar_bg,
 			Name = "Fill",
 			BackgroundColor3 = color,
-			BackgroundTransparency = 0.1,
+			BackgroundTransparency = 0,
 			BorderSizePixel = 0,
 			Size = dim2(1, 0, 1, 0),
 			Position = dim2(0, 0, 0, 0),
+		})
+		
+		-- gradient for fill
+		local fill_gradient = library:create("UIGradient", {
+			Parent = bar_fill,
+			Rotation = 0,
+			Color = rgbseq({
+				rgbkey(0, rgb(255, 255, 255)),
+				rgbkey(1, rgb(200, 200, 200)),
+			}),
 		})
 		
 		-- value text
@@ -1830,19 +1862,40 @@ function library:custom_hud(options)
 			BorderSizePixel = 0,
 			Size = dim2(1, 0, 1, 0),
 			FontFace = library.font,
-			TextSize = 16,
+			TextSize = 11,
 			TextColor3 = rgb(255, 255, 255),
 			TextStrokeColor3 = rgb(0, 0, 0),
 			TextStrokeTransparency = 0,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextYAlignment = Enum.TextYAlignment.Center,
 			Text = "100",
+			ZIndex = 2,
+		})
+		
+		-- icon/label
+		local bar_label = library:create("TextLabel", {
+			Parent = bar_container,
+			Name = "Label",
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Size = dim2(0, 20, 0, 12),
+			Position = dim2(0, 2, 0.5, -6),
+			FontFace = library.font,
+			TextSize = 10,
+			TextColor3 = rgb(200, 200, 200),
+			TextStrokeColor3 = rgb(0, 0, 0),
+			TextStrokeTransparency = 0.5,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			Text = name:sub(1, 1),
+			ZIndex = 3,
 		})
 		
 		return {
 			main = bar_container,
 			bar = bar_fill,
 			text = bar_text,
+			label = bar_label,
 		}
 	end
 	
@@ -1851,17 +1904,17 @@ function library:custom_hud(options)
 		max_val = (max_val and max_val > 0) and max_val or 100
 		local ratio = clamp(val / max_val, 0, 1)
 		
-		-- анимация заполнения снизу вверх
+		-- анимация заполнения слева направо
 		tween_service:Create(
 			widget.bar,
-			TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 			{
-				Size = dim2(1, 0, ratio, 0),
-				Position = dim2(0, 0, 1 - ratio, 0)
+				Size = dim2(ratio, 0, 1, 0),
+				Position = dim2(0, 0, 0, 0)
 			}
 		):Play()
 		
-		widget.text.Text = tostring(floor(val))
+		widget.text.Text = tostring(floor(val)) .. "/" .. tostring(floor(max_val))
 	end
 	
 	-- utility functions
