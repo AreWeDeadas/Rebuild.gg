@@ -1618,7 +1618,7 @@ function library:custom_hud(options)
 	local cfg = {
 		enabled = false,
 		hud_type = options.hud_type or "Rust",
-		size = options.size or dim2(0, 230, 0, 70),
+		size = options.size or dim2(0, 120, 0, 70),
 		position = options.position or dim2(0, 250, 0, 300),
 		original_hud_disabled = false,
 		screen_gui = nil,
@@ -1701,24 +1701,16 @@ function library:custom_hud(options)
 		Parent = hud_background,
 		Name = "BarsHolder",
 		BackgroundTransparency = 1,
-		Size = dim2(1, 0, 1, 0),
-		Position = dim2(0, 0, 0, 0),
+		Size = dim2(1, -12, 1, -12),
+		Position = dim2(0, 6, 0, 6),
 	})
 	
 	library:create("UIListLayout", {
 		Parent = bars_holder,
-		FillDirection = Enum.FillDirection.Vertical,
-		HorizontalAlignment = Enum.HorizontalAlignment.Left,
-		VerticalAlignment = Enum.VerticalAlignment.Top,
-		Padding = dim(0, 6),
-	})
-	
-	library:create("UIPadding", {
-		Parent = bars_holder,
-		PaddingTop = dim(0, 6),
-		PaddingLeft = dim(0, 6),
-		PaddingRight = dim(0, 6),
-		PaddingBottom = dim(0, 6),
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = dim(0, 8),
 	})
 	
 	-- original hud management
@@ -1799,79 +1791,56 @@ function library:custom_hud(options)
 	end
 	
 	-- bar creation
-	function cfg.create_bar(name, icon_id, color)
-		local bar_main = library:create("Frame", {
+	function cfg.create_bar(name, color)
+		local bar_container = library:create("Frame", {
 			Parent = bars_holder,
 			Name = name,
-			BackgroundColor3 = rgb(0, 0, 0),
-			BackgroundTransparency = 0.4,
+			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
-			Size = dim2(0, 200, 0, 30),
-			ZIndex = 1,
+			Size = dim2(0, 50, 0, 50),
 		})
 		
-		library:create("UICorner", {
-			Parent = bar_main,
-			CornerRadius = dim(0, 4),
-		})
-		
-		local bar_fill = library:create("Frame", {
-			Parent = bar_main,
-			Name = name .. "Bar",
-			BackgroundColor3 = color,
+		-- bar background
+		local bar_bg = library:create("Frame", {
+			Parent = bar_container,
+			Name = "Background",
+			BackgroundColor3 = rgb(20, 20, 20),
+			BackgroundTransparency = 0.5,
 			BorderSizePixel = 0,
-			Size = dim2(0, 0, 1, 0),
+			Size = dim2(1, 0, 1, 0),
 			Position = dim2(0, 0, 0, 0),
-			ZIndex = 2,
 		})
 		
-		library:create("UICorner", {
-			Parent = bar_fill,
-			CornerRadius = dim(0, 3),
+		-- bar fill
+		local bar_fill = library:create("Frame", {
+			Parent = bar_bg,
+			Name = "Fill",
+			BackgroundColor3 = color,
+			BackgroundTransparency = 0.1,
+			BorderSizePixel = 0,
+			Size = dim2(1, 0, 1, 0),
+			Position = dim2(0, 0, 0, 0),
 		})
 		
+		-- value text
 		local bar_text = library:create("TextLabel", {
-			Parent = bar_main,
-			Name = "BarText",
+			Parent = bar_container,
+			Name = "Value",
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
 			Size = dim2(1, 0, 1, 0),
 			FontFace = library.font,
-			TextSize = 14,
+			TextSize = 16,
 			TextColor3 = rgb(255, 255, 255),
+			TextStrokeColor3 = rgb(0, 0, 0),
+			TextStrokeTransparency = 0,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextYAlignment = Enum.TextYAlignment.Center,
-			ZIndex = 5,
-			Text = "0",
-		})
-		
-		local icon_frame = library:create("Frame", {
-			Parent = bar_main,
-			Name = "Icon",
-			BackgroundColor3 = rgb(0, 0, 0),
-			BackgroundTransparency = 0.4,
-			BorderSizePixel = 0,
-			Size = dim2(0, 30, 0, 30),
-			Position = dim2(-0.16, 0, 0, 0),
-			ZIndex = 3,
-		})
-		
-		library:create("UICorner", {
-			Parent = icon_frame,
-			CornerRadius = dim(0, 4),
-		})
-		
-		local icon_image = library:create("ImageLabel", {
-			Parent = icon_frame,
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Size = dim2(1, 0, 1, 0),
-			Image = "rbxassetid://" .. icon_id,
-			ZIndex = 4,
+			Text = "100",
 		})
 		
 		return {
-			main = bar_main,
+			main = bar_container,
 			bar = bar_fill,
 			text = bar_text,
 		}
@@ -1882,10 +1851,14 @@ function library:custom_hud(options)
 		max_val = (max_val and max_val > 0) and max_val or 100
 		local ratio = clamp(val / max_val, 0, 1)
 		
+		-- анимация заполнения снизу вверх
 		tween_service:Create(
 			widget.bar,
-			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{Size = dim2(ratio, 0, 1, 0)}
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{
+				Size = dim2(1, 0, ratio, 0),
+				Position = dim2(0, 0, 1 - ratio, 0)
+			}
 		):Play()
 		
 		widget.text.Text = tostring(floor(val))
@@ -1917,8 +1890,8 @@ function library:custom_hud(options)
 	
 	-- create rust hud
 	function cfg.create_rust_hud()
-		cfg.bars.health = cfg.create_bar("HealthBar", "10723406795", rgb(185, 91, 81))
-		cfg.bars.armor = cfg.create_bar("ArmorBar", "10734951684", rgb(79, 140, 178))
+		cfg.bars.health = cfg.create_bar("Health", rgb(185, 91, 81))
+		cfg.bars.armor = cfg.create_bar("Armor", rgb(79, 140, 178))
 		
 		cfg.refresh_bars()
 		cfg.wire_events()
