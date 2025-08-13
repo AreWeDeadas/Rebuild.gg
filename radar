@@ -1722,11 +1722,14 @@ function library:custom_hud(options)
 	
 	-- original hud management
 	function cfg.get_original_bar()
-		local pg = lp:FindFirstChild("PlayerGui")
-		if not pg then return nil end
-		local msg = pg:FindFirstChild("MainScreenGui")
-		if not msg then return nil end
-		return msg:FindFirstChild("Bar")
+		local success, result = pcall(function()
+			local pg = lp:FindFirstChild("PlayerGui")
+			if not pg then return nil end
+			local msg = pg:FindFirstChild("MainScreenGui")
+			if not msg then return nil end
+			return msg:FindFirstChild("Bar")
+		end)
+		return success and result or nil
 	end
 	
 	function cfg.get_storage()
@@ -1749,29 +1752,31 @@ function library:custom_hud(options)
 			cfg.original_connection = nil
 		end
 		
-		local pg = lp:FindFirstChild("PlayerGui")
-		local storage = cfg.get_storage()
-		if pg then
-			local msg = pg:FindFirstChild("MainScreenGui")
-			if msg then
-				for _, child in next, msg:GetChildren() do
-					if child.Name == "Bar" then
-						pcall(function()
-							child.Parent = storage
-						end)
+		pcall(function()
+			local pg = lp:FindFirstChild("PlayerGui")
+			local storage = cfg.get_storage()
+			if pg then
+				local msg = pg:FindFirstChild("MainScreenGui")
+				if msg then
+					for _, child in next, msg:GetChildren() do
+						if child and child.Name == "Bar" then
+							pcall(function()
+								child.Parent = storage
+							end)
+						end
 					end
 				end
+				
+				cfg.original_connection = library:connection(pg.DescendantAdded, function(obj)
+					if not cfg.original_hud_disabled then return end
+					if obj and obj.Name == "Bar" then
+						pcall(function()
+							obj.Parent = cfg.get_storage()
+						end)
+					end
+				end)
 			end
-			
-			cfg.original_connection = library:connection(pg.DescendantAdded, function(obj)
-				if not cfg.original_hud_disabled then return end
-				if obj and obj.Name == "Bar" then
-					pcall(function()
-						obj.Parent = cfg.get_storage()
-					end)
-				end
-			end)
-		end
+		end)
 	end
 	
 	function cfg.enable_original_hud()
@@ -1783,18 +1788,20 @@ function library:custom_hud(options)
 			cfg.original_connection = nil
 		end
 		
-		local pg = lp:FindFirstChild("PlayerGui")
-		local msg = pg and pg:FindFirstChild("MainScreenGui") or nil
-		local storage = cfg.get_storage()
-		if msg and storage then
-			for _, child in next, storage:GetChildren() do
-				if child.Name == "Bar" then
-					pcall(function()
-						child.Parent = msg
-					end)
+		pcall(function()
+			local pg = lp:FindFirstChild("PlayerGui")
+			local msg = pg and pg:FindFirstChild("MainScreenGui") or nil
+			local storage = cfg.get_storage()
+			if msg and storage then
+				for _, child in next, storage:GetChildren() do
+					if child and child.Name == "Bar" then
+						pcall(function()
+							child.Parent = msg
+						end)
+					end
 				end
 			end
-		end
+		end)
 	end
 	
 	-- bar creation
