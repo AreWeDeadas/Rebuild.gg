@@ -1,24 +1,102 @@
 local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/radar"))()
 
--- documentation
+-- apply default theme before creating UI
+library:update_theme("accent", hex("#ffffff"))
+library:update_theme("contrast", rgbseq({
+	rgbkey(0, hex("#2d2d2d")),
+	rgbkey(1, hex("#101010")),
+}))
+library:update_theme("inline", hex("#313131"))
+library:update_theme("outline", hex("#000000"))
+library:update_theme("text", hex("#7b7b7b"))
+library:update_theme("text_outline", hex("#282828"))
+library:update_theme("glow", hex("#ffffff"))
+
 local window = library:window({
 	name = os.date("Rebuild.gg - skidded by 32vision - fuckass - %b %d %Y - %H:%M:%S"),
 	size = dim2(0, 614, 0, 639),
 })
-local watermark = library:watermark({
-	default = os.date("Rebuild.gg - fuckass - %b %d %Y - %H:%M:%S"),
-})
--- radar system start
-local radar = library:radar({
-	size = 200,
-	clamp = true,
-})
--- radar system end
+-- custom hud system end
 local Aimbot = window:tab({ name = "Rage" })
 local Misc = window:tab({ name = "Misc" })
 local Visuals = window:tab({ name = "Visuals" })
 local Players = window:tab({ name = "Players" })
 local Settings = window:tab({ name = "Settings" })
+--
+local watermark = library:watermark({
+	default = os.date("Rebuild.gg - fuckass - %b %d %Y - %H:%M:%S"),
+})
+--
+local radar = library:radar({
+	size = 200,
+	clamp = true,
+})
+--
+local custom_hud = library:custom_hud({
+	size = dim2(0, 280, 0, 32),
+	position = dim2(0, 250, 0, 300),
+	hud_type = "Rust"
+})
+--
+do
+    local vcol = Visuals:column()
+    local hud_sec = vcol:section({ name = "hud" })
+
+    -- toggle to control custom hud visibility
+    local hud_toggle = hud_sec:toggle({
+        name = "Enabled",
+        flag = "CustomUi",
+        default = false,
+        callback = function(on)
+            custom_hud.set_visible(on)
+        end,
+    })
+
+    -- dependency box shows colorpickers only when CustomUi is enabled
+    local dep = hud_sec:dependency_box({})
+    dep:setup_dependencies({ { "CustomUi", true } })
+
+    dep:colorpicker({
+        name = "Health",
+        flag = "HudHealthColor",
+        color = custom_hud.colors.health_bar,
+        callback = function(col)
+            custom_hud.colors.health_bar = col
+            custom_hud.update_bar_colors()
+        end,
+    })
+
+    dep:colorpicker({
+        name = "Armor",
+        flag = "HudArmorColor",
+        color = custom_hud.colors.armor_bar,
+        callback = function(col)
+            custom_hud.colors.armor_bar = col
+            custom_hud.update_bar_colors()
+        end,
+    })
+
+    dep:colorpicker({
+        name = "Text",
+        flag = "HudTextColor",
+        color = custom_hud.colors.text,
+        callback = function(col)
+            custom_hud.colors.text = col
+            custom_hud.update_bar_colors()
+        end,
+    })
+
+    dep:colorpicker({
+        name = "Stroke",
+        flag = "HudStrokeColor",
+        color = custom_hud.colors.text_stroke,
+        callback = function(col)
+            custom_hud.colors.text_stroke = col
+            custom_hud.update_bar_colors()
+        end,
+    })
+end
+--
 
 getgenv().load_config = function(name)
 	library:load_config(readfile(library.directory .. "/configs/" .. name .. ".cfg"))
@@ -31,11 +109,11 @@ config_holder = section:list({ flag = "config_name_list" })
 section:textbox({ flag = "config_name_text_box" })
 section:button_holder({})
 section:button({
-	name = "Create",
-	callback = function()
-		writefile(library.directory .. "/configs/" .. flags["config_name_text_box"] .. ".cfg", library:get_config())
-		library:config_list_update()
-	end,
+    name = "Create",
+    callback = function()
+        writefile(library.directory .. "/configs/" .. flags["config_name_text_box"] .. ".cfg", library:get_config())
+        library:config_list_update()
+    end,
 })
 section:button({
 	name = "Delete",
@@ -189,6 +267,41 @@ HUD:toggle({
 		library.keybind_list_frame.Visible = bool
 	end,
 })
+HUD:toggle({
+    name = "CustomUI",
+    flag = "custom_hud_enabled",
+    callback = function(bool)
+        custom_hud.set_visible(bool)
+    end,
+})
+:colorpicker({
+    name = "Health",
+    flag = "hud_health_color",
+    color = custom_hud.colors.health_bar,
+    callback = function(color)
+        custom_hud.colors.health_bar = color
+        custom_hud.update_bar_colors()
+    end,
+})
+:colorpicker({
+    name = "Armor",
+    flag = "hud_armor_color",
+    color = custom_hud.colors.armor_bar,
+    callback = function(color)
+        custom_hud.colors.armor_bar = color
+        custom_hud.update_bar_colors()
+    end,
+})
+:colorpicker({
+    name = "Text",
+    flag = "hud_text_color",
+    color = custom_hud.colors.text,
+    callback = function(color)
+        custom_hud.colors.text = color
+        custom_hud.update_bar_colors()
+    end,
+})
+
 
 -- build watermark text based on selected HUD -> Watermark -> Type items
 local PLACE_NAME_CACHE
@@ -269,8 +382,8 @@ radar_dep:setup_dependencies({
 radar_dep:slider({
     name = "Zoom",
     flag = "radar_zoom",
-    min = 0.5,
-    max = 4,
+    min = 0.1,
+    max = 2,
     default = 1,
     interval = 0.1,
     callback = function(v)
