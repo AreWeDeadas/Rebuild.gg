@@ -487,15 +487,19 @@ function library:load_assets()
         loaded = 0,
         queue = {},
         github_base = "https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/main/",
-        skip_file = library.directory .. "/configs/asset_skiplist.json",
+        -- store skiplist directly in Rebuild.gg directory
+        skip_file = library.directory .. "/asset_skiplist.json",
         skipped = {},
     }
 
     -- load persisted skiplist
     local function load_skiplist()
-        if isfile(cfg.skip_file) then
+        -- read new location first; if missing, fall back to legacy configs/ path
+        local legacy = library.directory .. "/configs/asset_skiplist.json"
+        local read_path = isfile(cfg.skip_file) and cfg.skip_file or (isfile(legacy) and legacy or nil)
+        if read_path then
             local ok, data = pcall(function()
-                return http_service:JSONDecode(readfile(cfg.skip_file))
+                return http_service:JSONDecode(readfile(read_path))
             end)
             if ok and type(data) == "table" then
                 for _, key in ipairs(data) do
@@ -1009,52 +1013,52 @@ function library:load_sounds()
 		):Play()
 	end
 	
-	-- download sound
-	local function download_sound(path, save_path)
-		local url = cfg.github_base .. path
-		local timeout_s = 15
-		local body
-		local used_request = false
+	-- download sound (supports full URLs or repo-relative paths)
+    local function download_sound(path, save_path)
+        local url = (type(path) == "string" and path:match("^https?://")) and path or (cfg.github_base .. path)
+        local timeout_s = 15
+        local body
+        local used_request = false
 
-		-- try exploit request API
-		local req = (typeof(http_request) == "function" and http_request)
-			or (typeof(request) == "function" and request)
-			or (syn and typeof(syn.request) == "function" and syn.request)
+        -- try exploit request API with timeout first
+        local req = (typeof(http_request) == "function" and http_request)
+            or (typeof(request) == "function" and request)
+            or (syn and typeof(syn.request) == "function" and syn.request)
 
-		if req then
-			used_request = true
-			local ok, res = pcall(req, {
-				Url = url,
-				Method = "GET",
-				Headers = {['User-Agent'] = "Rebuild.gg"},
-				Timeout = timeout_s,
-			})
-			if ok and res and tonumber(res.StatusCode) == 200 and res.Body then
-				body = res.Body
-			end
-		end
+        if req then
+            used_request = true
+            local ok, res = pcall(req, {
+                Url = url,
+                Method = "GET",
+                Headers = {['User-Agent'] = "Rebuild.gg"},
+                Timeout = timeout_s,
+            })
+            if ok and res and tonumber(res.StatusCode) == 200 and res.Body then
+                body = res.Body
+            end
+        end
 
-		if not body and not used_request then
-			-- fallback: HttpGet
-			local ok, res = pcall(function()
-				return game:HttpGet(url)
-			end)
-			if ok and res then
-				body = res
-			end
-		end
+        if not body and not used_request then
+            -- fallback: HttpGet
+            local ok, res = pcall(function()
+                return game:HttpGet(url)
+            end)
+            if ok and res then
+                body = res
+            end
+        end
 
-		if body then
-			writefile(save_path, body)
-			return true
-		end
+        if body then
+            writefile(save_path, body)
+            return true
+        end
 
-		-- mark as skipped
-		cfg.skipped[path] = true
-		save_skiplist()
-		warn("[SoundLoader] Skipped:", path)
-		return false
-	end
+        -- mark as skipped
+        cfg.skipped[path] = true
+        save_skiplist()
+        warn("[SoundLoader] Skipped:", path)
+        return false
+    end
 	
 	-- queue sound
 	local function queue_sound(github_path, local_path, display_name)
@@ -1066,36 +1070,59 @@ function library:load_sounds()
 		cfg.total = cfg.total + 1
 	end
 
-	-- build queue
-	local function build_queue()
-		cfg.queue = {}
-		cfg.total = 0
-		
-		-- список хитсаундов
-		local sounds = {
-			"connectpacanoff.mp3",
-			"cod.mp3",
-			"rust.mp3",
-			"bonk.mp3",
-			"neverlose.mp3",
-			"skeet.mp3",
-			"fatality.mp3",
-			"metallic.mp3",
-			"bameware.mp3",
-			"uwu.mp3"
-		}
-		
-		-- добавляем в очередь
-		for _, sound_name in ipairs(sounds) do
-			queue_sound(
-				"sounds/" .. sound_name,
-				library.directory .. "/sounds/" .. sound_name,
-				sound_name:gsub("%.mp3$", "")
-			)
-		end
-		
-		cfg.total = #cfg.queue
-	end
+	-- build queue dynamically from GitHub contents API
+    local function build_queue()
+        cfg.queue = {}
+        cfg.total = 0
+
+        local api_url = "https://api.github.com/repos/AreWeDeadas/Rebuild.gg/contents/sounds"
+
+        -- request function (reuse same logic as downloads)
+        local function http_get(url)
+            local req = (typeof(http_request) == "function" and http_request)
+                or (typeof(request) == "function" and request)
+                or (syn and typeof(syn.request) == "function" and syn.request)
+
+            if req then
+                local ok, res = pcall(req, {
+                    Url = url,
+                    Method = "GET",
+                    Headers = {['User-Agent'] = "Rebuild.gg"},
+                    Timeout = 15,
+                })
+                if ok and res and tonumber(res.StatusCode) == 200 and res.Body then
+                    return true, res.Body
+                end
+            end
+            local ok2, res2 = pcall(function()
+                return game:HttpGet(url)
+            end)
+            if ok2 and res2 then return true, res2 end
+            return false
+        end
+
+        local ok, body = http_get(api_url)
+        if ok and body then
+            local decoded_ok, items = pcall(function()
+                return http_service:JSONDecode(body)
+            end)
+            if decoded_ok and type(items) == "table" then
+                for _, item in ipairs(items) do
+                    if type(item) == "table" and item.type == "file" and item.name then
+                        -- prefer API download_url if present; fallback to raw path
+                        local download_url = item.download_url or (cfg.github_base .. "sounds/" .. item.name)
+                        queue_sound(
+                            download_url,
+                            library.directory .. "/sounds/" .. item.name,
+                            item.name
+                        )
+                    end
+                end
+            end
+        end
+
+        cfg.total = #cfg.queue
+    end
 	
 	-- process queue
 	local function process_queue()
