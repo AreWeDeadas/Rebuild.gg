@@ -68,7 +68,8 @@ local library = {
 	folders = {
 		"/fonts",
 		"/configs",
-		"/images",
+		"/assets",
+		"/sounds",
 	},
 	flags = {},
 	config_flags = {},
