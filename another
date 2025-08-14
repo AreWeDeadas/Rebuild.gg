@@ -735,6 +735,12 @@ function library:load_assets()
 			"Sound: " .. sound:gsub("%.mp3", "")
 		)
 	end
+
+	-- finalize indexing before calculating percent
+	cfg.total = #cfg.queue
+	cfg.loaded = 0
+	update_loader("Indexing assets...")
+	task.wait(0.05)
 	
 	-- process queue
 	    local function process_queue()
