@@ -773,30 +773,35 @@ function library:load_assets()
 		end
 
 		-- fade out on completion
-		for _, obj in ipairs(loader_outline:GetDescendants()) do
-			if obj:IsA("TextLabel") then
-				tween_service:Create(
-					obj,
-					TweenInfo.new(0.3, Enum.EasingStyle.Quad),
-					{TextTransparency = 1}
-				):Play()
-			elseif obj:IsA("Frame") then
-				tween_service:Create(
-					obj,
-					TweenInfo.new(0.3, Enum.EasingStyle.Quad),
-					{BackgroundTransparency = 1}
-				):Play()
+		if loader_outline and loader_outline.Parent then
+			for _, obj in ipairs(loader_outline:GetDescendants()) do
+				if obj:IsA("TextLabel") then
+					tween_service:Create(
+						obj,
+						TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+						{TextTransparency = 1}
+					):Play()
+				elseif obj:IsA("Frame") then
+					tween_service:Create(
+						obj,
+						TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+						{BackgroundTransparency = 1}
+					):Play()
+				end
 			end
+
+			tween_service:Create(
+				loader_outline,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				{BackgroundTransparency = 1}
+			):Play()
+
+			task.wait(0.3)
 		end
-
-		tween_service:Create(
-			loader_outline,
-			TweenInfo.new(0.3, Enum.EasingStyle.Quad),
-			{BackgroundTransparency = 1}
-		):Play()
-
-		task.wait(0.3)
-		loader_gui:Destroy()
+		
+		if loader_gui and loader_gui.Parent then
+			loader_gui:Destroy()
+		end
 	end
 	
 	-- start processing (initial and on restart)
