@@ -4912,7 +4912,6 @@ function library:keybind(options)
 	library.config_flags[cfg.flag] = cfg.set
 	--
 
-	library.config_flags[cfg.flag] = cfg.set
 
 	return setmetatable(cfg, library)
 end
@@ -4932,7 +4931,9 @@ function library:dropdown(options)
 		open = false,
 		option_instances = {},
 		multi_items = {},
-		scrolling = options.scrolling or false,
+		-- автоматически включаем скроллинг если элементов больше 10
+		scrolling = #(options.items or { "1", "2", "3" }) > 10,
+		max_visible_items = 10, -- максимум видимых элементов
 	}
 
 	cfg.default = options.default or (cfg.multi and { cfg.items[1] }) or cfg.items[1] or nil
@@ -5145,13 +5146,17 @@ function library:dropdown(options)
 	--
 
 	-- dropdown holder
+	-- высота элемента примерно 18 пикселей, для 10 элементов = 180
+	local item_height = 18
+	local max_height = cfg.max_visible_items * item_height
+	
 	local dropdown_holder = library:create("Frame", {
 		Parent = sgui,
 		BorderColor3 = rgb(0, 0, 0),
 		Name = "dropdown_holder",
 		BackgroundTransparency = 1,
 		Position = dim2(0, dropdown.AbsolutePosition.X + 1, 0, dropdown.AbsolutePosition.Y + 22),
-		Size = dim2(0, dropdown.AbsoluteSize.X, 0, cfg.scrolling and 180 or 0),
+		Size = dim2(0, dropdown.AbsoluteSize.X, 0, cfg.scrolling and max_height or 0),
 		BorderSizePixel = 0,
 		AutomaticSize = cfg.scrolling and Enum.AutomaticSize.None or Enum.AutomaticSize.Y,
 		BackgroundColor3 = themes.preset.outline,
