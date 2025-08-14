@@ -504,7 +504,7 @@ function library:load_assets()
 		Position = dim2(0.5, -175, 0.5, -50),
 		BorderColor3 = rgb(0, 0, 0),
 		BorderSizePixel = 0,
-		BackgroundColor3 = themes.preset.outline,
+		BackgroundColor3 = themes.preset.outline or rgb(0, 0, 0),
 	})
 	
 	local loader_inline = library:create("Frame", {
@@ -514,7 +514,7 @@ function library:load_assets()
 		BorderColor3 = rgb(0, 0, 0),
 		Size = dim2(1, -2, 1, -2),
 		BorderSizePixel = 0,
-		BackgroundColor3 = themes.preset.inline,
+		BackgroundColor3 = themes.preset.inline or rgb(49, 49, 49),
 	})
 	
 	local loader_background = library:create("Frame", {
@@ -530,9 +530,10 @@ function library:load_assets()
 	local UIGradient = library:create("UIGradient", {
 		Parent = loader_background,
 		Name = "",
+		Rotation = 90,
 		Color = rgbseq({
-			rgbkey(0, themes.preset.high_contrast),
-			rgbkey(1, themes.preset.low_contrast),
+			rgbkey(0, rgb(41, 41, 55)),
+			rgbkey(1, rgb(35, 35, 47)),
 		}),
 	})
 	
@@ -540,7 +541,7 @@ function library:load_assets()
 		Parent = loader_background,
 		Name = "",
 		FontFace = library.font,
-		TextColor3 = themes.preset.accent,
+		TextColor3 = themes.preset.accent or rgb(255, 255, 255),
 		BorderColor3 = rgb(0, 0, 0),
 		Text = "Loading Assets",
 		Size = dim2(1, 0, 0, 20),
@@ -555,7 +556,7 @@ function library:load_assets()
 		Parent = loader_background,
 		Name = "",
 		FontFace = library.font,
-		TextColor3 = themes.preset.text,
+		TextColor3 = themes.preset.text or rgb(123, 123, 123),
 		BorderColor3 = rgb(0, 0, 0),
 		Text = "Initializing...",
 		Size = dim2(1, -20, 0, 16),
@@ -571,7 +572,7 @@ function library:load_assets()
 		Parent = loader_background,
 		Name = "",
 		FontFace = library.font,
-		TextColor3 = themes.preset.accent,
+		TextColor3 = themes.preset.accent or rgb(255, 255, 255),
 		BorderColor3 = rgb(0, 0, 0),
 		Text = "0%",
 		Size = dim2(1, -20, 0, 16),
@@ -590,7 +591,7 @@ function library:load_assets()
 		BorderColor3 = rgb(0, 0, 0),
 		Size = dim2(1, -20, 0, 4),
 		BorderSizePixel = 0,
-		BackgroundColor3 = themes.preset.inline,
+		BackgroundColor3 = themes.preset.inline or rgb(49, 49, 49),
 	})
 	
 	local progress_bar = library:create("Frame", {
@@ -600,7 +601,7 @@ function library:load_assets()
 		BorderColor3 = rgb(0, 0, 0),
 		Size = dim2(0, 0, 1, 0),
 		BorderSizePixel = 0,
-		BackgroundColor3 = themes.preset.accent,
+		BackgroundColor3 = themes.preset.accent or rgb(255, 255, 255),
 	})
 	
 	local accent_top = library:create("Frame", {
@@ -610,12 +611,13 @@ function library:load_assets()
 		BorderColor3 = rgb(0, 0, 0),
 		Size = dim2(1, -4, 0, 1),
 		BorderSizePixel = 0,
-		BackgroundColor3 = themes.preset.accent,
+		BackgroundColor3 = themes.preset.accent or rgb(255, 255, 255),
 	})
 	
 	-- update loader
 	local function update_loader(asset_name)
-		local percent = floor((cfg.loaded / cfg.total) * 100)
+		if cfg.total == 0 then cfg.total = 1 end -- избегаем деления на ноль
+		local percent = math.floor((cfg.loaded / cfg.total) * 100)
 		asset_text.Text = asset_name or "Loading..."
 		progress_text.Text = percent .. "%"
 		
@@ -644,7 +646,7 @@ function library:load_assets()
 	
 	-- queue asset
 	local function queue_asset(github_path, local_path, display_name)
-		insert(cfg.queue, {
+		table.insert(cfg.queue, {
 			github = github_path,
 			save = local_path,
 			name = display_name
@@ -652,8 +654,37 @@ function library:load_assets()
 		cfg.total = cfg.total + 1
 	end
 	
+	-- queue crosshairs
+	for i = 1, 32 do
+		local name = string.format("crosshair%03d.png", i)
+		queue_asset(
+			"assets/crosshairs/" .. name,
+			library.directory .. "/assets/" .. name,
+			"Crosshair " .. i
+		)
+	end
+	
+	-- queue sounds
+	local sounds = {
+		"hit1.mp3", "hit2.mp3", "hit3.mp3", "hit4.mp3",
+		"kill1.mp3", "kill2.mp3", "headshot.mp3"
+	}
+	
+	for _, sound in ipairs(sounds) do
+		queue_asset(
+			"sounds/" .. sound,
+			library.directory .. "/sounds/" .. sound,
+			"Sound: " .. sound:gsub("%.mp3", "")
+		)
+	end
+	
 	-- process queue
 	local function process_queue()
+		if #cfg.queue == 0 then
+			loader_gui:Destroy()
+			return
+		end
+		
 		for _, asset in ipairs(cfg.queue) do
 			update_loader(asset.name)
 			
@@ -694,30 +725,6 @@ function library:load_assets()
 		
 		task.wait(0.3)
 		loader_gui:Destroy()
-	end
-	
-	-- queue crosshairs
-	for i = 1, 32 do
-		local name = string.format("crosshair%03d.png", i)
-		queue_asset(
-			"assets/crosshairs/" .. name,
-			library.directory .. "/assets/" .. name,
-			"Crosshair " .. i
-		)
-	end
-	
-	-- queue sounds
-	local sounds = {
-		"hit1.mp3", "hit2.mp3", "hit3.mp3", "hit4.mp3",
-		"kill1.mp3", "kill2.mp3", "headshot.mp3"
-	}
-	
-	for _, sound in ipairs(sounds) do
-		queue_asset(
-			"sounds/" .. sound,
-			library.directory .. "/sounds/" .. sound,
-			"Sound: " .. sound:gsub("%.mp3", "")
-		)
 	end
 	
 	-- process
