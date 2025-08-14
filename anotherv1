@@ -640,6 +640,23 @@ function library:load_assets()
 		BorderSizePixel = 0,
 		BackgroundColor3 = themes.preset.accent or rgb(255, 255, 255),
 	})
+
+	-- restart button
+	local restart_btn = library:create("TextButton", {
+		Parent = loader_outline,
+		Name = "",
+		Text = "Restart",
+		FontFace = library.font,
+		Size = dim2(0, 64, 0, 18),
+		Position = dim2(1, -70, 1, -24),
+		BackgroundTransparency = 0,
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.inline or rgb(49, 49, 49),
+		TextColor3 = themes.preset.accent or rgb(255, 255, 255),
+		TextSize = 12,
+	})
+	library:apply_theme(restart_btn, "inline", "BackgroundColor3")
+	library:apply_theme(restart_btn, "accent", "TextColor3")
 	
 	-- update loader
 	local function update_loader(asset_name)
@@ -711,93 +728,64 @@ function library:load_assets()
 		})
 		cfg.total = cfg.total + 1
 	end
-	
-	-- queue crosshairs
-	for i = 1, 500 do
-		local name = string.format("crosshair%03d.png", i)
-		queue_asset(
-			"assets/crosshairs/" .. name,
-			library.directory .. "/assets/" .. name,
-			"Crosshair " .. i
-		)
+
+	-- build queue (crosshairs + sounds)
+	local function build_queue()
+		cfg.queue = {}
+		cfg.total = 0
+		-- crosshairs
+		for i = 1, 500 do
+			local name = string.format("crosshair%03d.png", i)
+			queue_asset(
+				"assets/crosshairs/" .. name,
+				library.directory .. "/assets/" .. name,
+				"Crosshair " .. i
+			)
+		end
+		-- sounds
+		local sounds = {
+			"hit1.mp3", "hit2.mp3", "hit3.mp3", "hit4.mp3",
+			"kill1.mp3", "kill2.mp3", "headshot.mp3"
+		}
+		for _, sound in ipairs(sounds) do
+			queue_asset(
+				"sounds/" .. sound,
+				library.directory .. "/sounds/" .. sound,
+				"Sound: " .. sound:gsub("%.mp3", "")
+			)
+		end
+		-- finalize indexing
+		cfg.total = #cfg.queue
 	end
 	
-	-- queue sounds
-	local sounds = {
-		"hit1.mp3", "hit2.mp3", "hit3.mp3", "hit4.mp3",
-		"kill1.mp3", "kill2.mp3", "headshot.mp3"
-	}
-	
-	for _, sound in ipairs(sounds) do
-		queue_asset(
-			"sounds/" .. sound,
-			library.directory .. "/sounds/" .. sound,
-			"Sound: " .. sound:gsub("%.mp3", "")
-		)
+	-- start processing (initial and on restart)
+	local function start_processing()
+		-- rebuild queue and show indexing status
+		build_queue()
+		update_loader("Indexing assets...")
+		-- reset progress bar visually
+		tween_service:Create(
+			progress_bar,
+			TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{Size = dim2(0, 0, 1, 0)}
+		):Play()
+		task.wait(0.05)
+		cfg.loaded = 0
+		cfg.force = cfg.force or false
+		process_queue()
 	end
 
-	-- finalize indexing before calculating percent
-	cfg.total = #cfg.queue
-	cfg.loaded = 0
-	update_loader("Indexing assets...")
-	task.wait(0.05)
-	
-	-- process queue
-	    local function process_queue()
-        if #cfg.queue == 0 then
-            loader_gui:Destroy()
-            return
-        end
-        
-        for _, asset in ipairs(cfg.queue) do
-            -- skip immediately if persisted as problematic
-            if cfg.skipped[asset.github] then
-                update_loader("Skipped: " .. (asset.name or asset.github))
-                cfg.loaded = cfg.loaded + 1
-                task.wait(0.01)
-            else
-                update_loader(asset.name)
-                if not isfile(asset.save) then
-                    download_asset(asset.github, asset.save)
-                end
-                cfg.loaded = cfg.loaded + 1
-                task.wait(0.03)
-            end
-        end
-		
-		-- complete
-		update_loader("Complete!")
-		task.wait(0.5)
-		
-		-- fade out
-		for _, obj in ipairs(loader_outline:GetDescendants()) do
-			if obj:IsA("TextLabel") then
-				tween_service:Create(
-					obj,
-					TweenInfo.new(0.3, Enum.EasingStyle.Quad),
-					{TextTransparency = 1}
-				):Play()
-			elseif obj:IsA("Frame") then
-				tween_service:Create(
-					obj,
-					TweenInfo.new(0.3, Enum.EasingStyle.Quad),
-					{BackgroundTransparency = 1}
-				):Play()
-			end
-		end
-		
-		tween_service:Create(
-			loader_outline,
-			TweenInfo.new(0.3, Enum.EasingStyle.Quad),
-			{BackgroundTransparency = 1}
-		):Play()
-		
-		task.wait(0.3)
-		loader_gui:Destroy()
-	end
-	
+	-- wire restart button
+	restart_btn.MouseButton1Click:Connect(function()
+		asset_text.Text = "Restarting..."
+		progress_text.Text = "0%"
+		cfg.force = true
+		start_processing()
+		cfg.force = false
+	end)
+
 	-- process
-	process_queue()
+	start_processing()
 end
 
 -- asset utilities
