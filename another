@@ -93,14 +93,14 @@ local config_flags = library.config_flags
 
 local themes = {
 	preset = {
-		["outline"] = rgb(15, 2, 7), --
-		["inline"] = rgb(38, 9, 21), --
-		["accent"] = rgb(175, 50, 100), --
-		["high_contrast"] = rgb(30, 6, 16),
-		["low_contrast"] = rgb(22, 4, 12),
-		["text"] = rgb(136, 136, 136),
-		["text_outline"] = rgb(0, 0, 0),
-		["glow"] = rgb(0, 0, 0),
+		["outline"] = rgb(0, 0, 0), -- черный
+		["inline"] = rgb(49, 49, 49), -- темно-серый  
+		["accent"] = rgb(255, 255, 255), -- белый
+		["high_contrast"] = rgb(45, 45, 45), -- темно-серый
+		["low_contrast"] = rgb(16, 16, 16), -- почти черный
+		["text"] = rgb(123, 123, 123), -- серый
+		["text_outline"] = rgb(40, 40, 40), -- темно-серый
+		["glow"] = rgb(255, 255, 255), -- белый
 	},
 
 	utility = {
@@ -482,12 +482,38 @@ end
 
 -- asset loader system
 function library:load_assets()
-	local cfg = {
-		total = 0,
-		loaded = 0,
-		queue = {},
-		github_base = "https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/main/"
-	}
+    local cfg = {
+        total = 0,
+        loaded = 0,
+        queue = {},
+        github_base = "https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/main/",
+        skip_file = library.directory .. "/configs/asset_skiplist.json",
+        skipped = {},
+    }
+
+    -- load persisted skiplist
+    local function load_skiplist()
+        if isfile(cfg.skip_file) then
+            local ok, data = pcall(function()
+                return http_service:JSONDecode(readfile(cfg.skip_file))
+            end)
+            if ok and type(data) == "table" then
+                for _, key in ipairs(data) do
+                    cfg.skipped[key] = true
+                end
+            end
+        end
+    end
+
+    local function save_skiplist()
+        local list = {}
+        for key, v in pairs(cfg.skipped) do
+            if v then list[#list+1] = key end
+        end
+        writefile(cfg.skip_file, http_service:JSONEncode(list))
+    end
+
+    load_skiplist()
 	
 	-- loader ui
 	local loader_gui = library:create("ScreenGui", {
@@ -536,7 +562,8 @@ function library:load_assets()
 			rgbkey(1, rgb(35, 35, 47)),
 		}),
 	})
-	
+	library:apply_theme(UIGradient, "contrast", "Color")
+
 	local title_text = library:create("TextLabel", {
 		Parent = loader_background,
 		Name = "",
@@ -629,20 +656,51 @@ function library:load_assets()
 	end
 	
 	-- download asset
-	local function download_asset(path, save_path)
-		local url = cfg.github_base .. path
-		local success, result = pcall(function()
-			return game:HttpGet(url)
-		end)
-		
-		if success and result then
-			writefile(save_path, result)
-			return true
-		else
-			warn("[AssetLoader] Failed:", path)
-			return false
-		end
-	end
+	    local function download_asset(path, save_path)
+        local url = cfg.github_base .. path
+        local timeout_s = 15
+        local body
+        local used_request = false
+
+        -- try exploit request API with timeout first
+        local req = (typeof(http_request) == "function" and http_request)
+            or (typeof(request) == "function" and request)
+            or (syn and typeof(syn.request) == "function" and syn.request)
+
+        if req then
+            used_request = true
+            local ok, res = pcall(req, {
+                Url = url,
+                Method = "GET",
+                Headers = {['User-Agent'] = "Rebuild.gg"},
+                Timeout = timeout_s,
+            })
+            if ok and res and tonumber(res.StatusCode) == 200 and res.Body then
+                body = res.Body
+            end
+        end
+
+        if not body and not used_request then
+            -- fallback: HttpGet (may not honor timeout in some environments)
+            local ok, res = pcall(function()
+                return game:HttpGet(url)
+            end)
+            if ok and res then
+                body = res
+            end
+        end
+
+        if body then
+            writefile(save_path, body)
+            return true
+        end
+
+        -- mark as skipped on failure/timeout
+        cfg.skipped[path] = true
+        save_skiplist()
+        warn("[AssetLoader] Skipped:", path)
+        return false
+    end
 	
 	-- queue asset
 	local function queue_asset(github_path, local_path, display_name)
@@ -655,7 +713,7 @@ function library:load_assets()
 	end
 	
 	-- queue crosshairs
-	for i = 1, 32 do
+	for i = 1, 500 do
 		local name = string.format("crosshair%03d.png", i)
 		queue_asset(
 			"assets/crosshairs/" .. name,
@@ -679,22 +737,27 @@ function library:load_assets()
 	end
 	
 	-- process queue
-	local function process_queue()
-		if #cfg.queue == 0 then
-			loader_gui:Destroy()
-			return
-		end
-		
-		for _, asset in ipairs(cfg.queue) do
-			update_loader(asset.name)
-			
-			if not isfile(asset.save) then
-				download_asset(asset.github, asset.save)
-			end
-			
-			cfg.loaded = cfg.loaded + 1
-			task.wait(0.03)
-		end
+	    local function process_queue()
+        if #cfg.queue == 0 then
+            loader_gui:Destroy()
+            return
+        end
+        
+        for _, asset in ipairs(cfg.queue) do
+            -- skip immediately if persisted as problematic
+            if cfg.skipped[asset.github] then
+                update_loader("Skipped: " .. (asset.name or asset.github))
+                cfg.loaded = cfg.loaded + 1
+                task.wait(0.01)
+            else
+                update_loader(asset.name)
+                if not isfile(asset.save) then
+                    download_asset(asset.github, asset.save)
+                end
+                cfg.loaded = cfg.loaded + 1
+                task.wait(0.03)
+            end
+        end
 		
 		-- complete
 		update_loader("Complete!")
