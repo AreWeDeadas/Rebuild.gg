@@ -1,5 +1,5 @@
 loadstring(game:HttpGet("https://pastebin.com/raw/gimbTwW1"))()
-local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/radar"))()
+local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/another"))()
 
 -- apply default theme before creating UI
 library:update_theme("accent", hex("#ffffff"))
@@ -13,8 +13,13 @@ library:update_theme("text", hex("#7b7b7b"))
 library:update_theme("text_outline", hex("#282828"))
 library:update_theme("glow", hex("#ffffff"))
 
+-- load assets before creating UI
+library:load_assets()
+-- Загрузить звуки
+library:load_sounds()
+
 local window = library:window({
-	name = os.date("Rebuild.gg - skidded by 32vision - fuckass - %b %d %Y - %H:%M:%S"),
+	name = os.date("Rebuild.gg - skidded by 32vision - %b %d %Y - Private - onyxhub sucks - cursed by 32vision to win - creds to chagpt "),
 	size = dim2(0, 614, 0, 639),
 })
 -- custom hud system end
@@ -53,6 +58,10 @@ local vars = {
 	v2 = Vector2,
 	v3 = Vector3,
 }
+
+-- enable debug logs
+flags["Debug"] = true
+print("[Rebuild] Debug enabled")
 
 -- utility system start
 local utility = {}
@@ -111,6 +120,260 @@ do
 		end
 		return best, bestd or vars.math.huge
 	end
+
+	-- damage detection framework start
+	-- listeners storage
+	utility._hit_listeners = {}
+
+	-- target info feed storage
+	utility._target = {
+		info = nil, -- table with all fields
+		listeners = {},
+	}
+
+	-- subscribe to hit event
+	function utility:OnHit(callback)
+		if typeof(callback) == "function" then
+			table.insert(self._hit_listeners, callback)
+		end
+	end
+
+	-- subscribe to target info updates
+	function utility:OnTargetUpdate(callback)
+		if typeof(callback) == "function" then
+			table.insert(self._target.listeners, callback)
+		end
+	end
+
+	-- internal: emit hit event safely
+	function utility:_emit_hit(info)
+		for _, fn in ipairs(self._hit_listeners) do
+			pcall(fn, info)
+		end
+	end
+
+	-- internal: print to chat helper
+	function utility:_chat(msg)
+		local sg = game:GetService("StarterGui")
+		pcall(function()
+			sg:SetCore("ChatMakeSystemMessage", { Text = msg })
+		end)
+		print(msg)
+	end
+
+	-- public: get current target info and istarget flag
+	function utility:GetTargetInfo()
+		local info = self._target.info
+		return info ~= nil, info
+	end
+
+	-- public: set current target info by player (auto-collects fields)
+	function utility:SetTargetInfo(player)
+		local info = nil
+		-- always drive damage detector override immediately
+		utility._dd.override_player = player or nil
+		if player and player.Character then
+			local char = player.Character
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local root = hum and hum.RootPart or char:FindFirstChild("HumanoidRootPart")
+			local health = hum and hum.Health or nil
+			local maxh = hum and hum.MaxHealth or nil
+			-- use dot to test method existence, then call via ':' safely
+			local cf = root and root.CFrame or ((char.GetPivot and char:GetPivot()) or nil)
+			local pos = root and root.Position or (cf and cf.Position or nil)
+			info = {
+				isTarget = true,
+				player = player,
+				userId = player.UserId,
+				name = player.Name,
+				displayName = player.DisplayName,
+				character = char,
+				humanoid = hum,
+				root = root,
+				cframe = cf,
+				position = pos,
+				health = health,
+				maxHealth = maxh,
+				alive = hum and hum.Health > 0,
+				time = os.clock(),
+			}
+		end
+		self._target.info = info
+		-- notify listeners
+		for _, fn in ipairs(self._target.listeners) do
+			pcall(fn, info)
+		end
+		if flags and flags["Debug"] then
+			if info then
+				print("[TargetFeed] SetTargetInfo:", info.name)
+			else
+				print("[TargetFeed] SetTargetInfo (char not ready):", player and player.Name or "nil")
+			end
+		end
+	end
+
+	function utility:ClearTargetInfo()
+		self._target.info = nil
+		utility._dd.override_player = nil
+		for _, fn in ipairs(self._target.listeners) do
+			pcall(fn, nil)
+		end
+		if flags and flags["Debug"] then
+			print("[TargetFeed] ClearTargetInfo")
+		end
+	end
+
+	-- internal state for damage detection
+	utility._dd = {
+		last_target = nil,
+		last_char = nil,
+		hum = nil,
+		last_health = nil,
+		last_max = nil,
+		conn = nil,
+		hum_conn = nil,
+		last_debug_t = 0,
+		override_player = nil, -- приоритетная цель, установленная таргетингом вручную
+	}
+
+	-- external setter: таргетинг сообщает текущую цель
+	function utility:SetCurrentTarget(player)
+		utility._dd.override_player = player
+		if flags and flags["Debug"] then
+			print("[DD] SetCurrentTarget:", player and player.Name)
+		end
+	end
+
+	function utility:ClearCurrentTarget()
+		utility._dd.override_player = nil
+		if flags and flags["Debug"] then
+			print("[DD] ClearCurrentTarget")
+		end
+	end
+
+	-- start heartbeat watcher once
+	if not utility._dd.conn then
+		utility._dd.conn = vars.rs.Heartbeat:Connect(function()
+			local dd = utility._dd
+			-- используем приоритетно цель, установленную через SetCurrentTarget
+			local current = utility._dd.override_player or (targeting_state and targeting_state.current or nil)
+
+			-- periodic debug heartbeat
+			if flags and flags["Debug"] then
+				local now = os.clock()
+				if now - (dd.last_debug_t or 0) > 1 then
+					dd.last_debug_t = now
+					print(string.format("[DD] hb: current=%s hum=%s lh=%s lm=%s", 
+						current and current.Name or "nil",
+						(dd.hum and "ok" or "nil"),
+						tostring(dd.last_health),
+						tostring(dd.last_max)
+					))
+				end
+			end
+
+			-- target switched: hard reset
+			if current ~= dd.last_target then
+				dd.last_target = current
+				dd.last_char = nil
+				dd.hum = nil
+				dd.last_health = nil
+				dd.last_max = nil
+
+				-- disconnect previous humanoid connection
+				if dd.hum_conn then pcall(function() dd.hum_conn:Disconnect() end) dd.hum_conn = nil end
+				if flags and flags["Debug"] then
+					print("[DD] target switched to:", current and current.Name)
+				end
+			end
+
+			if not current then return end
+
+			-- refresh humanoid if character changed (respawn) or missing
+			local char = current.Character
+			if char ~= dd.last_char then
+				dd.last_char = char
+				dd.hum = char and char:FindFirstChildOfClass("Humanoid") or nil
+				dd.last_health = nil
+				dd.last_max = nil
+				-- reconnect HealthChanged for new humanoid
+				if dd.hum_conn then pcall(function() dd.hum_conn:Disconnect() end) dd.hum_conn = nil end
+				if dd.hum then
+					if flags and flags["Debug"] then
+						print("[DD] humanoid bound for:", current and current.Name)
+					end
+					dd.hum_conn = dd.hum.HealthChanged:Connect(function(ch)
+						local cm = dd.hum and dd.hum.MaxHealth or 0
+						if dd.last_health == nil or dd.last_max == nil or cm ~= dd.last_max then
+							dd.last_health = ch
+							dd.last_max = cm
+							return
+						end
+						if ch ~= dd.last_health then
+							local dmg = dd.last_health - ch
+							if dmg > 0 then
+								local percent = vars.math.floor(((cm > 0 and ch / cm or 0) * 100) + 0.5)
+								local hitinfo = {
+									player = current,
+									damage = dmg,
+									health = ch,
+									max = cm,
+									percentage = percent,
+								}
+								if flags and flags["Debug"] then
+									print("[DD] hit:", hitinfo.player and hitinfo.player.Name, hitinfo.damage, hitinfo.health, hitinfo.max, hitinfo.percentage)
+								end
+								utility:_emit_hit(hitinfo)
+							end
+							dd.last_health = ch
+							dd.last_max = cm
+						end
+					end)
+				end
+			end
+
+			local hum = dd.hum
+			if not hum or not hum.Parent then return end
+
+			local ch = hum.Health
+			local cm = hum.MaxHealth
+
+			-- initialize or reset when MaxHealth changes to avoid false positives
+			if dd.last_health == nil or dd.last_max == nil or cm ~= dd.last_max then
+				dd.last_health = ch
+				dd.last_max = cm
+				return
+			end
+
+			if ch ~= dd.last_health then
+				local dmg = dd.last_health - ch
+				if dmg > 0 then
+					local percent = vars.math.floor(((cm > 0 and ch / cm or 0) * 100) + 0.5)
+					local info = {
+						player = current,
+						damage = dmg,
+						health = ch,
+						max = cm,
+						percentage = percent,
+					}
+					utility:_emit_hit(info)
+				end
+				dd.last_health = ch
+				dd.last_max = cm
+			end
+		end)
+		-- default listener: print to chat
+		utility:OnHit(function(info)
+			local name = (info.player and info.player.Name) or "?"
+			local dmg = vars.math.floor(info.damage + 0.5)
+			local hp = vars.math.floor(info.health + 0.5)
+			local mx = vars.math.floor(info.max + 0.5)
+			local pct = vars.math.floor(info.percentage + 0.5)
+			utility:_chat(string.format("[Hit] %s -%d HP | %d/%d (%d%%)", name, dmg, hp, mx, pct))
+		end)
+	end
+	-- damage detection framework end
+
 end
 -- utility system end
 
@@ -125,7 +388,9 @@ do
 	    -- highlight state (for visuals)
     local hl_state = { 
         last_char = nil, 
-        hl = nil, 
+        hl = nil,           -- LOS highlight (DepthMode = Occluded), parented to real char
+        occ_hl = nil,       -- OCC highlight (AlwaysOnTop), parented to cloned model
+        occ_model = nil,    -- cloned model welded to real character parts
         char_added_conn = nil,
         char_removing_conn = nil,
         died_conn = nil, 
@@ -138,16 +403,48 @@ do
     local function get_or_create_highlight()
         local h = Instance.new("Highlight")
         h.Name = HL_NAME
-        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        -- default DepthMode adjusted when applied
+        h.DepthMode = Enum.HighlightDepthMode.Occluded
         return h
     end
 
-    local function clear_highlight()
-        -- ПОЛНАЯ очистка: уничтожаем инстанс и отписываемся от событий
-        if hl_state.hl then
-            pcall(function() hl_state.hl:Destroy() end)
-            hl_state.hl = nil
+    local function build_occ_model(char)
+        -- destroy previous model
+        if hl_state.occ_model then pcall(function() hl_state.occ_model:Destroy() end) hl_state.occ_model = nil end
+        if not char then return end
+        local m = Instance.new("Model")
+        m.Name = "RB_TH_OCC"
+        m.Parent = workspace
+        for _, child in ipairs(char:GetChildren()) do
+            if child:IsA("BasePart") then
+                local cloned = child:Clone()
+                cloned:ClearAllChildren()
+                cloned.CanCollide = false
+                if cloned:IsA("MeshPart") then cloned.TextureID = "" end
+                cloned.Size = cloned.Size * 0.99 -- prevent z-fighting
+                cloned.Parent = m
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = cloned
+                weld.Part1 = child
+                weld.Parent = cloned
+            end
         end
+        hl_state.occ_model = m
+    end
+
+    local function clear_highlight()
+        -- soft clear: disable visuals, keep singletons, cleanup cloned model
+        if hl_state.hl then
+            hl_state.hl.Enabled = false
+            hl_state.hl.Adornee = nil
+            hl_state.hl.Parent = nil
+        end
+        if hl_state.occ_hl then
+            hl_state.occ_hl.Enabled = false
+            hl_state.occ_hl.Adornee = nil
+            hl_state.occ_hl.Parent = nil
+        end
+        if hl_state.occ_model then pcall(function() hl_state.occ_model:Destroy() end) hl_state.occ_model = nil end
         if hl_state.died_conn then pcall(function() hl_state.died_conn:Disconnect() end) hl_state.died_conn = nil end
         if hl_state.char_added_conn then pcall(function() hl_state.char_added_conn:Disconnect() end) hl_state.char_added_conn = nil end
         if hl_state.char_removing_conn then pcall(function() hl_state.char_removing_conn:Disconnect() end) hl_state.char_removing_conn = nil end
@@ -160,6 +457,10 @@ do
         if hl_state.hl then
             hl_state.hl.Enabled = false
             hl_state.hl.Adornee = nil
+        end
+        if hl_state.occ_hl then
+            hl_state.occ_hl.Enabled = false
+            hl_state.occ_hl.Adornee = nil
         end
         hl_state.last_char = nil
         -- НЕ трогаем char_added_conn/char_removing_conn/died_conn здесь
@@ -188,24 +489,32 @@ do
             return
         end
 
-        -- создаем singleton один раз
-        if not hl_state.hl then
-            hl_state.hl = get_or_create_highlight()
-        end
+        -- ensure LOS/OCC singletons
+        if not hl_state.hl then hl_state.hl = get_or_create_highlight() end
+        if not hl_state.occ_hl then hl_state.occ_hl = get_or_create_highlight() end
+        if not hl_state.occ_model or not hl_state.occ_model.Parent then build_occ_model(char) end
 
-        -- обновляем свойства и привязку
+        -- LOS highlight on real char (Occluded)
         local h = hl_state.hl
+        h.DepthMode = Enum.HighlightDepthMode.Occluded
         h.FillColor = get_cp_color("th_fill", Color3.fromRGB(255, 255, 0))
         h.OutlineColor = get_cp_color("th_out", Color3.fromRGB(0, 0, 0))
         h.FillTransparency = get_num("th_ftrs", 0.5)
         h.OutlineTransparency = get_num("th_otrs", 0.5)
-        if h.Adornee ~= char then
-            h.Adornee = char
-        end
-        if h.Parent ~= char then
-            h.Parent = char -- привязываем к модели персонажа
-        end
+        if h.Adornee ~= char then h.Adornee = char end
+        if h.Parent ~= char then h.Parent = char end
         h.Enabled = true
+
+        -- OCC highlight on cloned model (AlwaysOnTop)
+        local oh = hl_state.occ_hl
+        oh.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        oh.FillColor = get_cp_color("th_occ_fill", Color3.fromRGB(0, 170, 255))
+        oh.OutlineColor = get_cp_color("th_occ_out", Color3.fromRGB(0, 0, 0))
+        oh.FillTransparency = get_num("th_occ_ftrs", 0.3)
+        oh.OutlineTransparency = get_num("th_occ_otrs", 0.7)
+        if oh.Adornee ~= hl_state.occ_model then oh.Adornee = hl_state.occ_model end
+        if oh.Parent ~= hl_state.occ_model then oh.Parent = hl_state.occ_model end
+        oh.Enabled = true
 
         hl_state.last_char = char
     end
@@ -286,6 +595,20 @@ do
     end
     
     -- простое обновление: при смене цели пересоздаем highlight
+    local function is_visible(char)
+        if not char then return false end
+        local cam = workspace.CurrentCamera
+        local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
+        if not root then return false end
+        local origin = cam.CFrame.Position
+        local dir = (root.Position - origin)
+        local rayParams = RaycastParams.new()
+        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+        rayParams.FilterDescendantsInstances = { lp.Character, char, hl_state.occ_model }
+        local hit = workspace:Raycast(origin, dir, rayParams)
+        return hit == nil
+    end
+
     function framework:update_target_highlight()
         -- выключено в UI -> очищаем и выходим
         if not flags or not flags["target_highlight"] then
@@ -305,6 +628,10 @@ do
             apply_highlight(char)
             bind_humanoid_died(char)
         end
+
+        -- toggle occlusion highlight based on visibility
+        local vis = is_visible(char)
+        if hl_state.occ_hl then hl_state.occ_hl.Enabled = not vis end
     end
 
 	-- use shared state instead of a private upvalue
@@ -317,12 +644,18 @@ do
 			if flags and flags["Debug"] then print("[Targeting] Releasing target:", targeting_state.current.Name) end
 			clear_highlight()
 			targeting_state.current = nil
+			-- очищаем информацию о цели для детекции урона
+			utility:ClearTargetInfo()
+			utility:ClearCurrentTarget()
 			if flags and flags["Debug"] then print("[Targeting] Target cleared") end
 		else
 			-- Acquire new target via utility
 			local best_player, best_dist = utility:GetClosestToMouse()
 			if best_player then
 				targeting_state.current = best_player
+				-- устанавливаем цель для детекции урона
+				utility:SetTargetInfo(best_player)
+				utility:SetCurrentTarget(best_player)
 				if flags and flags["target_highlight"] then
 					setup_target_highlight_bindings(best_player)
 				end
@@ -395,6 +728,13 @@ do
     th_toggle:colorpicker({ name = "Out",  flag = "th_out",  default = Color3.fromRGB(0, 0, 0), callback = function()
         refresh_hl_from_ui()
     end })
+    -- occluded colorpickers (для случая, когда цель не видима)
+    th_toggle:colorpicker({ name = "OccFill", flag = "th_occ_fill", default = Color3.fromRGB(0, 170, 255), callback = function()
+        refresh_hl_from_ui()
+    end })
+    th_toggle:colorpicker({ name = "OccOut",  flag = "th_occ_out",  default = Color3.fromRGB(0, 0, 0), callback = function()
+        refresh_hl_from_ui()
+    end })
 	-- dependent transparency sliders (interval 0.01)
 	local th_dep = VisSec:dependency_box()
 	th_dep:setup_dependencies({ { th_toggle, true } })
@@ -404,6 +744,669 @@ do
     th_dep:slider({ name = "OTrs", flag = "th_otrs", min = 0, max = 1, default = 0.5, interval = 0.01, callback = function()
         refresh_hl_from_ui()
     end })
+    th_dep:slider({ name = "OccFTrs", flag = "th_occ_ftrs", min = 0, max = 1, default = 0.3, interval = 0.01, callback = function()
+        refresh_hl_from_ui()
+    end })
+    th_dep:slider({ name = "OccOTrs", flag = "th_occ_otrs", min = 0, max = 1, default = 0.7, interval = 0.01, callback = function()
+        refresh_hl_from_ui()
+    end })
+
+    -- chams system start
+    do
+        local chams_state = {
+            enabled = false,
+            folder = nil,
+            handles = {},
+            fill_color = Color3.fromRGB(255, 0, 0),
+            fill_transparency = 0.5,
+            last_target = nil
+        }
+
+        local function cleanup_chams()
+            for _, handle in pairs(chams_state.handles) do
+                pcall(function() handle:Destroy() end)
+            end
+            chams_state.handles = {}
+            if chams_state.folder then
+                pcall(function() chams_state.folder:Destroy() end)
+                chams_state.folder = nil
+            end
+        end
+
+        local function create_chams(char)
+            if not char then return end
+            
+            -- создаем папку для хранения
+            if not chams_state.folder then
+                chams_state.folder = Instance.new("Folder")
+                chams_state.folder.Name = "RB_Chams"
+                chams_state.folder.Parent = workspace.CurrentCamera
+            end
+
+            -- очищаем старые
+            for _, handle in pairs(chams_state.handles) do
+                pcall(function() handle:Destroy() end)
+            end
+            chams_state.handles = {}
+
+            -- создаем chams для каждой части тела
+            for _, part in ipairs(char:GetChildren()) do
+                if part:IsA("BasePart") and (
+                    part.Name:find("Arm") or 
+                    part.Name:find("Leg") or 
+                    part.Name:find("Hand") or 
+                    part.Name:find("Feet") or 
+                    part.Name:find("Foot") or
+                    part.Name:find("Torso") or 
+                    part.Name == "Head"
+                ) then
+                    local handle = Instance.new("BoxHandleAdornment")
+                    handle.Size = part.Size
+                    
+                    handle.Adornee = part
+                    handle.AlwaysOnTop = true
+                    handle.ZIndex = 0
+                    handle.Transparency = chams_state.fill_transparency
+                    handle.Color3 = chams_state.fill_color
+                    handle.Parent = chams_state.folder
+                    
+                    table.insert(chams_state.handles, handle)
+                end
+            end
+        end
+
+        local function update_chams()
+            if not chams_state.enabled then
+                cleanup_chams()
+                return
+            end
+
+            local target = targeting_state and targeting_state.current
+            if not target or not target.Character then
+                cleanup_chams()
+                chams_state.last_target = nil
+                return
+            end
+
+            -- если цель изменилась, пересоздаем
+            if chams_state.last_target ~= target.Character then
+                create_chams(target.Character)
+                chams_state.last_target = target.Character
+            end
+
+            -- обновляем свойства
+            for _, handle in pairs(chams_state.handles) do
+                if handle and handle.Parent then
+                    handle.Color3 = chams_state.fill_color
+                    handle.Transparency = chams_state.fill_transparency
+                    handle.AlwaysOnTop = true
+                end
+            end
+        end
+
+        -- ui элементы
+        local chams_toggle = VisSec:toggle({
+            name = "Chams",
+            flag = "target_chams",
+            default = false,
+            callback = function(state)
+                chams_state.enabled = state
+                if state then
+                    update_chams()
+                else
+                    cleanup_chams()
+                end
+            end
+        })
+
+        chams_toggle:colorpicker({
+            name = "Color",
+            flag = "chams_color",
+            default = Color3.fromRGB(255, 0, 0),
+            callback = function(color)
+                chams_state.fill_color = color
+                update_chams()
+            end
+        })
+
+        local chams_dep = VisSec:dependency_box()
+        chams_dep:setup_dependencies({ { chams_toggle, true } })
+        
+        chams_dep:slider({
+            name = "Trs",
+            flag = "chams_trs",
+            min = 0,
+            max = 1,
+            default = 0.5,
+            interval = 0.01,
+            callback = function(value)
+                chams_state.fill_transparency = value
+                update_chams()
+            end
+        })
+
+        -- Walls always on: chams drawn through walls by default
+
+        -- подключаем к обновлению
+        table.insert(library.connections, vars.rs.RenderStepped:Connect(function()
+            if chams_state.enabled then
+                update_chams()
+            end
+        end))
+
+        -- очистка при смене цели
+        utility:OnTargetUpdate(function(info)
+            if not info then
+                cleanup_chams()
+                chams_state.last_target = nil
+            end
+        end)
+    end
+    -- chams system end
+
+    -- ChinaHat system start
+    do
+        local hat = {
+            enabled = false,
+            style = "Custom", -- Custom/Rainbow/Astolfo
+            c1 = Color3.fromRGB(128, 18, 255),
+            c2 = Color3.fromRGB(255, 0, 128),
+            c3 = Color3.fromRGB(0, 200, 255),
+            c4 = Color3.fromRGB(255, 255, 0),
+            height = 0.7,
+            radius = 2,
+            sides = 25,
+            hat_trs = 0.35,
+            line_trs = 1.0,
+            drawings = {},
+            conn = nil,
+            speed = 0.2,
+        }
+
+        local function lerp(a, b, t)
+            return a + (b - a) * t
+        end
+
+        local function lerp_color(a, b, t)
+            return Color3.new(
+                lerp(a.R, b.R, t),
+                lerp(a.G, b.G, t),
+                lerp(a.B, b.B, t)
+            )
+        end
+
+        local function custom_gradient(t, time)
+            -- animated 4-stop gradient using C1..C4
+            local tt = (t + (time * hat.speed)) % 1
+            if tt < 0.25 then
+                return lerp_color(hat.c1, hat.c2, tt / 0.25)
+            elseif tt < 0.5 then
+                return lerp_color(hat.c2, hat.c3, (tt - 0.25) / 0.25)
+            elseif tt < 0.75 then
+                return lerp_color(hat.c3, hat.c4, (tt - 0.5) / 0.25)
+            else
+                return lerp_color(hat.c4, hat.c1, (tt - 0.75) / 0.25)
+            end
+        end
+
+        -- Generic palette interpolation helper
+        local function palette_color(colors, t, time, speed)
+            local n = #colors
+            if n == 0 then return Color3.new(1,1,1) end
+            if n == 1 then return colors[1] end
+            local tt = (t + (time * (speed or hat.speed))) % 1
+            local seg = tt * n
+            local i = math.floor(seg) + 1
+            local f = seg - math.floor(seg)
+            local a = colors[i]
+            local b = colors[(i % n) + 1]
+            return lerp_color(a, b, f)
+        end
+
+        local function astolfo_color(t, time)
+            -- three-tone: pink -> hotpink -> blue (rotating)
+            local colors = {
+                Color3.fromRGB(255, 105, 180), -- pink
+                Color3.fromRGB(255, 75, 150),  -- deeper pink
+                Color3.fromRGB(135, 206, 250), -- light blue
+            }
+            return palette_color(colors, t, time, 0.25)
+        end
+
+        local function rainbow_color(t, time)
+            local hue = (time * 0.2 + t) % 1
+            return Color3.fromHSV(hue, 0.6, 1)
+        end
+
+        local function ensure_drawings()
+            if #hat.drawings == hat.sides then return end
+            -- cleanup first
+            for _, pair in ipairs(hat.drawings) do
+                pcall(function() if pair[1] then pair[1]:Remove() end end)
+                pcall(function() if pair[2] then pair[2]:Remove() end end)
+            end
+            hat.drawings = {}
+            for i = 1, hat.sides do
+                local line = Drawing.new("Line")
+                local tri = Drawing.new("Triangle")
+                line.ZIndex = 2
+                line.Thickness = 1
+                tri.ZIndex = 1
+                tri.Filled = true
+                table.insert(hat.drawings, { line, tri })
+            end
+        end
+
+        local function set_visible_all(v)
+            for _, pair in ipairs(hat.drawings) do
+                local line, tri = pair[1], pair[2]
+                if line then line.Visible = v end
+                if tri then tri.Visible = v end
+            end
+        end
+
+        local function cleanup_hat()
+            if hat.conn then
+                pcall(function() hat.conn:Disconnect() end)
+                hat.conn = nil
+            end
+            for _, pair in ipairs(hat.drawings) do
+                pcall(function() if pair[1] then pair[1]:Remove() end end)
+                pcall(function() if pair[2] then pair[2]:Remove() end end)
+            end
+            hat.drawings = {}
+        end
+
+        -- Predefined palettes with neutral names
+        local palettes = {
+            CustomPalette1  = { Color3.fromRGB(255,94,58),  Color3.fromRGB(255,154,0),  Color3.fromRGB(255,212,0) },
+            CustomPalette2  = { Color3.fromRGB(0,212,255),  Color3.fromRGB(0,128,255),  Color3.fromRGB(0,64,128),  Color3.fromRGB(0,40,80) },
+            CustomPalette3  = { Color3.fromRGB(255,0,0),    Color3.fromRGB(255,102,0) },
+            CustomPalette4  = { Color3.fromRGB(200,255,255),Color3.fromRGB(150,220,255),Color3.fromRGB(100,200,255),Color3.fromRGB(80,160,220), Color3.fromRGB(60,120,190) },
+            CustomPalette5  = { Color3.fromRGB(88,0,255),   Color3.fromRGB(255,0,191),  Color3.fromRGB(0,160,255) },
+            CustomPalette6  = { Color3.fromRGB(0,255,128),  Color3.fromRGB(255,0,255),  Color3.fromRGB(0,255,255) },
+            -- new palettes
+            CustomPalette7  = { Color3.fromRGB(255,255,255),Color3.fromRGB(200,200,200),Color3.fromRGB(150,150,150),Color3.fromRGB(100,100,100) },
+            CustomPalette8  = { Color3.fromRGB(255,20,147), Color3.fromRGB(186,85,211), Color3.fromRGB(72,61,139) },
+            CustomPalette9  = { Color3.fromRGB(0,255,255),  Color3.fromRGB(173,216,230),Color3.fromRGB(25,25,112) },
+            CustomPalette10 = { Color3.fromRGB(255,215,0),  Color3.fromRGB(255,165,0),  Color3.fromRGB(255,69,0) },
+            CustomPalette11 = { Color3.fromRGB(124,252,0),  Color3.fromRGB(50,205,50),  Color3.fromRGB(0,128,0) },
+            CustomPalette12 = { Color3.fromRGB(0,0,0),      Color3.fromRGB(45,0,80),    Color3.fromRGB(120,0,200), Color3.fromRGB(255,0,255) },
+            CustomPalette13 = { Color3.fromRGB(0,0,128),    Color3.fromRGB(0,0,255),    Color3.fromRGB(0,191,255), Color3.fromRGB(135,206,250) },
+            CustomPalette14 = { Color3.fromRGB(255,105,180),Color3.fromRGB(255,182,193),Color3.fromRGB(135,206,250) },
+            CustomPalette15 = { Color3.fromRGB(240,255,255),Color3.fromRGB(176,224,230),Color3.fromRGB(135,206,235), Color3.fromRGB(70,130,180) },
+            CustomPalette16 = { Color3.fromRGB(255,255,240),Color3.fromRGB(255,250,205),Color3.fromRGB(250,250,210), Color3.fromRGB(238,232,170) },
+        }
+
+        local function get_color_at(frac, time)
+            local style = hat.style
+            if style == "Rainbow" then
+                return rainbow_color(frac, time)
+            elseif style == "Astolfo" then
+                return astolfo_color(frac, time)
+            elseif palettes[style] ~= nil then
+                return palette_color(palettes[style], frac, time, 0.2)
+            else
+                return custom_gradient(frac, time)
+            end
+        end
+
+        local function update_hat()
+            if not hat.enabled then
+                cleanup_hat()
+                return
+            end
+            local target = targeting_state and targeting_state.current
+            local char = (target and target.Character) or nil
+            local head = char and char:FindFirstChild("Head")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not (char and head and hum and hum.Health > 0) then
+                cleanup_hat()
+                return
+            end
+            ensure_drawings()
+
+            local cam = workspace.CurrentCamera
+            local timeNow = tick()
+            local tau = math.pi * 2
+            local pos = head.Position + Vector3.new(0, 0.75, 0)
+            local topWorld = pos + Vector3.new(0, hat.height, 0)
+
+            -- offscreen/behind camera: just hide this frame to avoid artifacts
+            local head2d, onScreen = cam:WorldToViewportPoint(head.Position)
+            if (not onScreen) or head2d.Z <= 0 then
+                set_visible_all(false)
+                return
+            end
+
+            for i = 1, hat.sides do
+                local line, tri = hat.drawings[i][1], hat.drawings[i][2]
+                local last = (i / hat.sides)
+                local nextf = ((i % hat.sides) + 1) / hat.sides
+                local angA = last * tau
+                local angB = nextf * tau
+                local lastWorld = pos + Vector3.new(math.cos(angA), 0, math.sin(angA)) * hat.radius
+                local nextWorld = pos + Vector3.new(math.cos(angB), 0, math.sin(angB)) * hat.radius
+
+                local a2d = cam:WorldToViewportPoint(lastWorld)
+                local b2d = cam:WorldToViewportPoint(nextWorld)
+                local t2d = cam:WorldToViewportPoint(topWorld)
+
+                local col = get_color_at(last, timeNow)
+
+                line.From = Vector2.new(a2d.X, a2d.Y)
+                line.To = Vector2.new(b2d.X, b2d.Y)
+                line.Color = col
+                line.Transparency = hat.line_trs
+                line.Visible = true
+
+                tri.PointA = Vector2.new(t2d.X, t2d.Y)
+                tri.PointB = line.From
+                tri.PointC = line.To
+                tri.Color = col
+                tri.Transparency = hat.hat_trs
+                tri.Visible = true
+            end
+        end
+
+        -- UI
+        local hat_toggle = VisSec:toggle({
+            name = "ChinaHat",
+            flag = "china_hat",
+            default = false,
+            callback = function(state)
+                hat.enabled = state
+                if state then
+                    update_hat()
+                else
+                    cleanup_hat()
+                end
+            end
+        })
+
+        hat_toggle:colorpicker({ name = "C1", flag = "hat_c1", default = hat.c1, callback = function(c) hat.c1 = c end })
+        hat_toggle:colorpicker({ name = "C2", flag = "hat_c2", default = hat.c2, callback = function(c) hat.c2 = c end })
+        hat_toggle:colorpicker({ name = "C3", flag = "hat_c3", default = hat.c3, callback = function(c) hat.c3 = c end })
+        hat_toggle:colorpicker({ name = "C4", flag = "hat_c4", default = hat.c4, callback = function(c) hat.c4 = c end })
+
+        local hat_dep = VisSec:dependency_box()
+        hat_dep:setup_dependencies({ { hat_toggle, true } })
+        local hat_style = hat_dep:dropdown({
+            name = "Style",
+            flag = "hat_style",
+            items = { "Custom", "Rainbow", "Astolfo",
+                "CustomPalette1", "CustomPalette2", "CustomPalette3", "CustomPalette4", "CustomPalette5", "CustomPalette6",
+                "CustomPalette7", "CustomPalette8", "CustomPalette9", "CustomPalette10", "CustomPalette11", "CustomPalette12",
+                "CustomPalette13", "CustomPalette14", "CustomPalette15", "CustomPalette16" },
+            default = "Custom",
+            callback = function(val) hat.style = val end
+        })
+
+        table.insert(library.connections, vars.rs.RenderStepped:Connect(function()
+            if hat.enabled then update_hat() end
+        end))
+
+        -- cleanup on target cleared and hide during transition
+        utility:OnTargetUpdate(function(info)
+            if not info then
+                cleanup_hat()
+            end
+        end)
+    end
+    -- ChinaHat system end
+
+    -- TargetESP system start
+    do
+        -- state
+        local targetesp_state = {
+            enabled = false,
+            color = hex("#ffffff"),
+            size = 1.0,
+            speed = 1.0,
+            bill = nil,
+            img = nil,
+            angle = 0,
+            conn = nil,
+            last_tick = os.clock(),
+            asset_items = nil, -- cached dropdown items
+            asset_map = nil,   -- name -> asset path
+        }
+
+        -- utils
+        local function as_asset(path)
+            if getcustomasset then return getcustomasset(path) end
+            if getsynasset then return getsynasset(path) end
+            return path
+        end
+
+        -- scan assets folder and prepare dropdown items and name->path map
+        local function scan_assets()
+            local dir = (library and library.directory or "Rebuild.gg") .. "/assets"
+            local items, map = {}, {}
+            local ok, files = pcall(function()
+                return listfiles and listfiles(dir) or {}
+            end)
+            if ok and files and #files > 0 then
+                table.sort(files)
+                for _, f in ipairs(files) do
+                    local lower = string.lower(f)
+                    if lower:sub(-4) == ".png" or lower:sub(-4) == ".jpg" or lower:sub(-5) == ".jpeg" then
+                        local name = f:match("([^/\\]+)$") or f
+                        table.insert(items, name)
+                        map[name] = as_asset(f)
+                    end
+                end
+            end
+            targetesp_state.asset_items = items
+            targetesp_state.asset_map = map
+            return items, map
+        end
+
+        local function set_image_by_name(name)
+            if not name or name == "" then return end
+            local map = targetesp_state.asset_map or select(2, scan_assets())
+            local path = map and map[name]
+            if targetesp_state.img then
+                targetesp_state.img.Image = path or targetesp_state.img.Image or ""
+            end
+        end
+
+        local function pick_asset_image()
+            local dir = (library and library.directory or "Rebuild.gg") .. "/assets"
+            local ok, files = pcall(function()
+                return listfiles and listfiles(dir) or {}
+            end)
+            if not ok or not files or #files == 0 then return nil end
+            table.sort(files)
+            for _, f in ipairs(files) do
+                local lower = string.lower(f)
+                if lower:sub(-4) == ".png" or lower:sub(-4) == ".jpg" or lower:sub(-5) == ".jpeg" then
+                    return as_asset(f)
+                end
+            end
+            return as_asset(files[1])
+        end
+
+        local function ensure_gui()
+            if targetesp_state.bill then return end
+            local bill = Instance.new("BillboardGui")
+            bill.Name = "RB_TargetESP"
+            bill.AlwaysOnTop = true
+            bill.LightInfluence = 0
+            bill.Size = UDim2.new(targetesp_state.size, 0, targetesp_state.size, 0)
+            bill.Enabled = true
+
+            local img = Instance.new("ImageLabel")
+            img.Name = "CrosshairImage"
+            img.BackgroundTransparency = 1
+            img.Size = UDim2.new(1, 0, 1, 0)
+            img.Position = UDim2.fromScale(0, 0)
+            -- prefer selected dropdown item; fallback to first asset; fallback to auto-pick
+            if not targetesp_state.asset_items or not targetesp_state.asset_map then
+                scan_assets()
+            end
+            local selected_name = (flags and flags["target_esp_image"]) or (targetesp_state.asset_items and targetesp_state.asset_items[1])
+            img.Image = (selected_name and targetesp_state.asset_map and targetesp_state.asset_map[selected_name]) or (pick_asset_image() or "")
+            img.ImageColor3 = targetesp_state.color
+            img.Parent = bill
+
+            targetesp_state.bill = bill
+            targetesp_state.img = img
+        end
+
+        local function destroy_gui()
+            if targetesp_state.bill then pcall(function() targetesp_state.bill:Destroy() end) end
+            targetesp_state.bill = nil
+            targetesp_state.img = nil
+        end
+
+        local function get_target_part()
+            local player = targeting_state and targeting_state.current
+            if not player or not player.Character then return nil end
+            local char = player.Character
+            local selected = flags and flags["aimbot_part"]
+            if selected and char:FindFirstChild(selected) then
+                return char[selected]
+            end
+            return utility:GetPreferredPart(char)
+        end
+
+        local function update_gui()
+            if not targetesp_state.enabled then return end
+            ensure_gui()
+
+            local part = get_target_part()
+            if not part then
+                if targetesp_state.bill then targetesp_state.bill.Parent = nil end
+                return
+            end
+
+            -- parent & adornee
+            targetesp_state.bill.Adornee = part
+            targetesp_state.bill.Parent = part
+
+            -- distance scale
+            local cam = (vars and vars.cam) or workspace.CurrentCamera
+            local dist = (cam.CFrame.Position - part.Position).Magnitude
+            local scale = math.clamp(dist / 30, 0.8, 4)
+            local final = (flags and (flags["target_esp_size"])) or targetesp_state.size
+            final = (final or 1) * scale
+            targetesp_state.bill.Size = UDim2.new(final, 0, final, 0)
+
+            -- rotation with delta time
+            local now = os.clock()
+            local dt = math.max(0, now - (targetesp_state.last_tick or now))
+            targetesp_state.last_tick = now
+            local spd = (flags and (flags["target_esp_speed"])) or targetesp_state.speed
+            targetesp_state.angle = (targetesp_state.angle + (spd or 1) * 180 * dt) % 360
+            if targetesp_state.img then
+                targetesp_state.img.Rotation = targetesp_state.angle
+                local color = (flags and flags["target_esp_color"]) or targetesp_state.color
+                if type(color) == "table" then
+                    -- Handle different color formats
+                    if color.R and color.G and color.B then
+                        -- Color3 format with uppercase
+                        targetesp_state.img.ImageColor3 = Color3.new(color.R, color.G, color.B)
+                    elseif color.r and color.g and color.b then
+                        -- Color3 format with lowercase
+                        targetesp_state.img.ImageColor3 = Color3.new(color.r, color.g, color.b)
+                    else
+                        -- Fallback to white if format unknown
+                        targetesp_state.img.ImageColor3 = Color3.new(1, 1, 1)
+                    end
+                else
+                    -- Already a Color3 object
+                    targetesp_state.img.ImageColor3 = color
+                end
+            end
+        end
+
+        -- UI
+        local tesp_toggle = VisSec:toggle({
+            name = "TargetEsp",
+            flag = "target_esp",
+            default = false,
+            callback = function(state)
+                targetesp_state.enabled = state
+                if state then
+                    ensure_gui()
+                    if not targetesp_state.conn then
+                        targetesp_state.conn = vars.rs.RenderStepped:Connect(update_gui)
+                        table.insert(library.connections, targetesp_state.conn)
+                    end
+                else
+                    if targetesp_state.conn then
+                        pcall(function() targetesp_state.conn:Disconnect() end)
+                    end
+                    targetesp_state.conn = nil
+                    destroy_gui()
+                end
+            end,
+        })
+        tesp_toggle:colorpicker({
+            name = "Color",
+            flag = "target_esp_color",
+            default = hex("#ffffff"),
+            callback = function(color)
+                targetesp_state.color = color
+                if targetesp_state.img then targetesp_state.img.ImageColor3 = color end
+            end,
+        })
+
+        local tesp_dep = VisSec:dependency_box()
+        tesp_dep:setup_dependencies({ { tesp_toggle, true } })
+        -- populate asset dropdown items once
+        local items = (scan_assets())
+        local default_item = (items and items[1]) or nil
+        tesp_dep:dropdown({
+            name = "Image",
+            flag = "target_esp_image",
+            items = items or {},
+            default = default_item,
+            callback = function(name)
+                set_image_by_name(name)
+            end
+        })
+        tesp_dep:slider({
+            name = "Size",
+            flag = "target_esp_size",
+            min = 0.1,
+            max = 40,
+            default = 1,
+            interval = 0.05,
+            callback = function(v)
+                targetesp_state.size = v
+            end,
+        })
+        tesp_dep:slider({
+            name = "Speed",
+            flag = "target_esp_speed",
+            min = 0.1,
+            max = 10,
+            default = 1,
+            interval = 0.1,
+            callback = function(v)
+                targetesp_state.speed = v
+            end,
+        })
+
+        -- cleanup on target cleared
+        utility:OnTargetUpdate(function(info)
+            if not info then
+                destroy_gui()
+            end
+        end)
+
+        -- cleanup on unload
+        table.insert(library.connections, {
+            Disconnect = function()
+                if targetesp_state.conn then pcall(function() targetesp_state.conn:Disconnect() end) end
+                targetesp_state.conn = nil
+                destroy_gui()
+            end
+        })
+    end
+    -- TargetESP system end
 
     -- TargetTracer system
     do
@@ -671,6 +1674,17 @@ do
         
         -- Style dropdown removed (3D removed)
         
+        -- hide tracer on target cleared (don't destroy, just hide)
+        utility:OnTargetUpdate(function(info)
+            if not info then
+                -- только скрываем, не удаляем полностью
+                if tracer_state.line then tracer_state.line.Visible = false end
+                if tracer_state.outline then tracer_state.outline.Visible = false end
+                if tracer_state.beam_line then tracer_state.beam_line.Enabled = false end
+                if tracer_state.beam_outline then tracer_state.beam_outline.Enabled = false end
+            end
+        end)
+
         -- cleanup on unload
         table.insert(library.connections, {
             Disconnect = function()
@@ -743,8 +1757,304 @@ end
 
 -- aimbot/prediction/resolver UI start
 do
-    -- create multi-section directly under Rage tab (not a column)
-    local AimSec, PredSec, ResSec = Aimbot:multi_section({ names = { "Aimbot", "Prediction", "Resolver" } })
+    -- create a single column on Rage and place multi-sections inside
+    local RageCol = Aimbot:column()
+    local AimSec, PredSec, ResSec = RageCol:multi_section({ names = { "Aimbot", "Prediction", "Resolver" } })
+    -- Tweaks/OnDamage multi-section in the same column
+    local Tweaks, OnDamage = RageCol:multi_section({ names = { "Tweaks", "OnDamage" } })
+    
+    -- ondamage system start
+    do
+        -- collect sounds from library directory
+        local function get_sound_files()
+            local items = {}
+            local dir = (library and library.directory or "Rebuild.gg") .. "/sounds"
+            local ok, files = pcall(function()
+                return listfiles and listfiles(dir) or {}
+            end)
+            if ok and type(files) == "table" then
+                for _, path in ipairs(files) do
+                    -- get filename only
+                    local name = path:match("[^/\\]+$")
+                    if name then table.insert(items, name) end
+                end
+            end
+            table.sort(items)
+            return (#items > 0) and items or { "ding.ogg", "bell.wav", "hit.mp3" }
+        end
+
+        -- play helper
+        local function play_hitsound(file)
+            local SoundService = game:GetService("SoundService")
+            local sound = SoundService:FindFirstChild("RB_HitSound")
+            if not sound then
+                sound = Instance.new("Sound")
+                sound.Name = "RB_HitSound"
+                sound.Looped = false
+                sound.Parent = SoundService
+            end
+            local base = (library and library.directory or "Rebuild.gg") .. "/sounds/" .. tostring(file or "")
+            local asset
+            if getcustomasset then
+                asset = getcustomasset(base)
+            elseif getsynasset then
+                asset = getsynasset(base)
+            end
+            if asset then
+                sound.SoundId = asset
+                sound.Volume = tonumber(flags["hs_volume"]) or 0.5
+                local pitch = tonumber(flags["hs_pitch"]) or 1
+                sound.PlaybackSpeed = pitch
+                pcall(function() sound:Play() end)
+            end
+        end
+
+        -- UI: hitsound
+        local hs_toggle = OnDamage:toggle({ name = "Hitsounds", flag = "hitsound_enabled", default = false })
+        local hs_dep = OnDamage:dependency_box()
+        hs_dep:setup_dependencies({ { hs_toggle, true } })
+        local hs_dropdown = hs_dep:dropdown({ name = "Sound", flag = "hs_file", items = get_sound_files() })
+        hs_dep:slider({ name = "Vol", flag = "hs_volume", min = 0, max = 10, default = 0.5, interval = 0.05 })
+        hs_dep:slider({ name = "Pitch", flag = "hs_pitch", min = 0.5, max = 2, default = 1, interval = 0.05 })
+        hs_dep:toggle({ name = "MuteOriginalSound", flag = "hs_mute_original", default = false })
+
+        -- sound muting framework (targets common hit sounds) per-toggle
+        local V = { Sound = {} }
+        V.Sound.TargetIds = V.Sound.TargetIds or {
+            "rbxassetid://6773912589",
+            "6773912589",
+            "http://www.roblox.com/asset/?id=6773912589",
+        }
+
+        function V.Sound.MuteTargetSound(sound)
+            if not sound or not sound:IsA("Sound") then return false end
+            local soundId = tostring(sound.SoundId or ""):lower()
+            for _, targetId in pairs(V.Sound.TargetIds) do
+                if soundId:find(tostring(targetId):lower(), 1, true) then
+                    if flags and flags["hs_mute_original"] then
+                        pcall(function()
+                            sound:Stop()
+                            sound.Volume = 0
+                            sound.Playing = false
+                        end)
+                        -- guard future re-plays
+                        if not V.Sound._guarded then V.Sound._guarded = {} end
+                        if not V.Sound._guarded[sound] then
+                            V.Sound._guarded[sound] = sound:GetPropertyChangedSignal("Playing"):Connect(function()
+                                if flags and flags["hs_mute_original"] and sound.Playing then
+                                    pcall(function()
+                                        sound:Stop()
+                                        sound.Volume = 0
+                                    end)
+                                end
+                            end)
+                        end
+                        return true
+                    end
+                end
+            end
+            return false
+        end
+
+        function V.Sound.MuteExistingSounds()
+            for _, obj in ipairs(game:GetDescendants()) do
+                if obj:IsA("Sound") then
+                    V.Sound.MuteTargetSound(obj)
+                end
+            end
+        end
+
+        -- initial sweep and live hook
+        task.defer(function()
+            V.Sound.MuteExistingSounds()
+        end)
+        if not V.Sound._conn then
+            V.Sound._conn = game.DescendantAdded:Connect(function(obj)
+                if obj:IsA("Sound") then
+                    V.Sound.MuteTargetSound(obj)
+                end
+            end)
+        end
+
+        -- runtime bind moved to single subscription at end
+    end
+    -- ondamage system end
+
+    -- notifications system start
+    do
+        -- no armor helper (removed by request)
+
+        -- build notification text
+        local function build_notification_text(info)
+            -- guard info and selection
+            info = info or {}
+            local parts = {}
+            local raw_selected = (type(flags["notif_info"]) == "table") and flags["notif_info"] or {}
+            -- normalize selected to array form
+            local selected = {}
+            if raw_selected[1] ~= nil then
+                for i = 1, #raw_selected do
+                    selected[#selected+1] = tostring(raw_selected[i])
+                end
+            else
+                for k, v in pairs(raw_selected) do
+                    if v then selected[#selected+1] = tostring(k) end
+                end
+            end
+            
+            -- get player name
+            local name = ""
+            if info.player then
+                if typeof(info.player) == "Instance" then
+                    if flags["notif_name"] == "DisplayName" then
+                        name = info.player.DisplayName or info.player.Name or "Player"
+                    else
+                        name = info.player.Name or info.player.DisplayName or "Player"
+                    end
+                else
+                    name = tostring(info.player)
+                end
+            end
+            
+            -- build info parts based on selection (no armor)
+            for _, item in ipairs(selected) do
+                if item == "Damage" and info.damage then
+                    local dmg = tonumber(info.damage)
+                    if dmg then table.insert(parts, "Dmg: " .. tostring(math.floor(dmg))) end
+                elseif item == "Health" and info.health then
+                    local hp = tonumber(info.health)
+                    if hp then table.insert(parts, "HP: " .. tostring(math.floor(hp))) end
+                elseif item == "RemainingHP" and info.remaining_health then
+                    local r = tonumber(info.remaining_health)
+                    if r then table.insert(parts, "Left: " .. tostring(math.floor(r))) end
+                elseif item == "Part" and info.part then
+                    table.insert(parts, "Part: " .. tostring(info.part))
+                end
+            end
+            
+            if #parts > 0 then
+                return name .. " | " .. table.concat(parts, " | ")
+            else
+                return name .. " | Hit"
+            end
+        end
+
+        -- UI: notifications
+        local notif_toggle = OnDamage:toggle({ name = "Notifications", flag = "notif_enabled", default = false })
+        local notif_dep = OnDamage:dependency_box()
+        notif_dep:setup_dependencies({ { notif_toggle, true } })
+        notif_dep:slider({ name = "Duration", flag = "notif_duration", min = 0.5, max = 3, default = 1.5, interval = 0.1 })
+        notif_dep:dropdown({ 
+            name = "Info", 
+            flag = "notif_info", 
+            items = { "Damage", "Health", "RemainingHP", "Part" },
+            multi = true,
+            default = { "Damage", "RemainingHP" }
+        })
+        notif_dep:dropdown({ 
+            name = "Name", 
+            flag = "notif_name", 
+            items = { "DisplayName", "OriginalName" },
+            default = "DisplayName"
+        })
+
+    end
+    -- notifications system end
+
+    -- build notification text from info
+    local function build_notification_text(info)
+        info = info or {}
+        local parts = {}
+        local raw_selected = (type(flags["notif_info"]) == "table") and flags["notif_info"] or {}
+        
+        -- normalize to array
+        local selected = {}
+        if raw_selected[1] ~= nil then
+            for i = 1, #raw_selected do
+                selected[#selected+1] = tostring(raw_selected[i])
+            end
+        else
+            for k, v in pairs(raw_selected) do
+                if v then selected[#selected+1] = tostring(k) end
+            end
+        end
+        
+        -- get name
+        local name = ""
+        if info.player then
+            if typeof(info.player) == "Instance" then
+                if flags["notif_name"] == "DisplayName" then
+                    name = info.player.DisplayName or info.player.Name or "Player"
+                else
+                    name = info.player.Name or info.player.DisplayName or "Player"
+                end
+            else
+                name = tostring(info.player)
+            end
+        end
+        
+        -- build parts
+        for _, item in ipairs(selected) do
+            if item == "Damage" and info.damage then
+                local dmg = tonumber(info.damage)
+                if dmg then table.insert(parts, "Dmg: " .. tostring(math.floor(dmg))) end
+            elseif item == "Health" and info.health then
+                local hp = tonumber(info.health)
+                if hp then table.insert(parts, "HP: " .. tostring(math.floor(hp))) end
+            elseif item == "RemainingHP" and info.remaining_health then
+                local r = tonumber(info.remaining_health)
+                if r then table.insert(parts, "Left: " .. tostring(math.floor(r))) end
+            elseif item == "Part" and info.part then
+                table.insert(parts, "Part: " .. tostring(info.part))
+            end
+        end
+        
+        -- combine
+        if #parts > 0 then
+            return name .. " | " .. table.concat(parts, " | ")
+        else
+            return name .. " | Hit"
+        end
+    end
+
+    -- single OnHit subscription for all features
+    utility:OnHit(function(info)
+        -- hitsounds
+        if flags and flags["hitsound_enabled"] then
+            local file = flags["hs_file"]
+            if file and file ~= "" then
+                play_hitsound(file)
+            end
+        end
+        
+        -- notifications
+        if not flags or not flags["notif_enabled"] then return end
+        
+        -- enrich info
+        if info and info.player and info.player.Character then
+            local char = info.player.Character
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                info.health = humanoid.Health
+                info.remaining_health = humanoid.Health
+            end
+        end
+        
+        -- build text
+        local text = build_notification_text(info)
+        local duration = tonumber(flags["notif_duration"]) or 1.5
+        if duration <= 0 or duration > 10 or duration ~= duration then
+            duration = 1.5
+        end
+        
+        -- show notification
+        if library then
+            library:notification({
+                text = text,
+                time = duration
+            })
+        end
+    end)
 
     -- Aimbot section
     local aimbot_toggle = AimSec:toggle({
@@ -1625,15 +2935,14 @@ Game:button({
 	end,
 })
 Game:slider({
-	name = "Max Players",
-	flag = "max_players",
-	min = 0,
-	max = 40,
-	default = 15,
-	interval = 1,
+    name = "Max Players",
+    flag = "max_players",
+    min = 0,
+    max = 40,
+    default = 15,
+    interval = 1,
 })
 --
-
 Aimbot.open_tab()
 
 task.spawn(function()
