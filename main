@@ -1423,8 +1423,7 @@ do
             line_thickness = 2,
             outline_thickness = 4,
             line_color = Color3.fromRGB(255, 255, 255),
-            outline_color = Color3.fromRGB(0, 0, 0),
-            -- 3D style removed
+            outline_color = Color3.fromRGB(0, 0, 0)
         }
         
         local function cleanup_tracer()
@@ -1436,79 +1435,10 @@ do
                 pcall(function() tracer_state.outline:Remove() end)
                 tracer_state.outline = nil
             end
-            -- 3D cleanup
-            if tracer_state.beam_line then pcall(function() tracer_state.beam_line:Destroy() end) tracer_state.beam_line = nil end
-            if tracer_state.beam_outline then pcall(function() tracer_state.beam_outline:Destroy() end) tracer_state.beam_outline = nil end
-            if tracer_state.attach_a then pcall(function() tracer_state.attach_a:Destroy() end) tracer_state.attach_a = nil end
-            if tracer_state.attach_b then pcall(function() tracer_state.attach_b:Destroy() end) tracer_state.attach_b = nil end
-            if tracer_state.start_part then pcall(function() tracer_state.start_part:Destroy() end) tracer_state.start_part = nil end
-            if tracer_state.end_part then pcall(function() tracer_state.end_part:Destroy() end) tracer_state.end_part = nil end
             if tracer_state.connection then
                 tracer_state.connection:Disconnect()
                 tracer_state.connection = nil
             end
-        end
-
-        local function ensure_3d()
-            if tracer_state.start_part and tracer_state.end_part and tracer_state.beam_line and tracer_state.beam_outline then
-                return
-            end
-            -- create holder parts
-            local sp = Instance.new("Part")
-            sp.Anchored = true
-            sp.CanCollide = false
-            sp.CanQuery = false
-            sp.Size = Vector3.new(0.2, 0.2, 0.2)
-            sp.Transparency = 1
-            sp.Name = "TT_Start"
-            sp.Parent = workspace
-            tracer_state.start_part = sp
-
-            local ep = Instance.new("Part")
-            ep.Anchored = true
-            ep.CanCollide = false
-            ep.CanQuery = false
-            ep.Size = Vector3.new(0.2, 0.2, 0.2)
-            ep.Transparency = 1
-            ep.Name = "TT_End"
-            ep.Parent = workspace
-            tracer_state.end_part = ep
-
-            local a0 = Instance.new("Attachment")
-            a0.Parent = sp
-            tracer_state.attach_a = a0
-
-            local a1 = Instance.new("Attachment")
-            a1.Parent = ep
-            tracer_state.attach_b = a1
-
-            -- outline beam first (wider, black by default)
-            local bout = Instance.new("Beam")
-            bout.Attachment0 = a0
-            bout.Attachment1 = a1
-            bout.FaceCamera = true
-            bout.Color = ColorSequence.new(tracer_state.outline_color)
-            bout.Width0 = 0.3
-            bout.Width1 = 0.3
-            bout.ZOffset = 0.02
-            bout.Transparency = NumberSequence.new(0)
-            bout.Enabled = false
-            bout.Parent = workspace
-            tracer_state.beam_outline = bout
-
-            -- main beam (narrower, on top)
-            local bline = Instance.new("Beam")
-            bline.Attachment0 = a0
-            bline.Attachment1 = a1
-            bline.FaceCamera = true
-            bline.Color = ColorSequence.new(tracer_state.line_color)
-            bline.Width0 = 0.15
-            bline.Width1 = 0.15
-            bline.ZOffset = 0
-            bline.Transparency = NumberSequence.new(0)
-            bline.Enabled = false
-            bline.Parent = workspace
-            tracer_state.beam_line = bline
         end
         
         local function create_tracer()
@@ -1517,8 +1447,6 @@ do
                 return
             end
             
-            -- 3D style removed
-
             if not tracer_state.outline then
                 tracer_state.outline = Drawing.new("Line")
                 tracer_state.outline.Visible = false
@@ -1674,8 +1602,6 @@ do
                 tracer_state.origin = value
             end
         })
-        
-        -- Style dropdown removed (3D removed)
         
         -- hide tracer on target cleared (don't destroy, just hide)
         utility:OnTargetUpdate(function(info)
@@ -1885,8 +1811,6 @@ do
 
     -- notifications system start
     do
-        -- no armor helper (removed by request)
-
         -- UI: notifications
         local notif_toggle = OnDamage:toggle({ name = "Notifications", flag = "notif_enabled", default = false })
         local notif_dep = OnDamage:dependency_box()
@@ -1895,64 +1819,6 @@ do
 
     end
     -- notifications system end
-
-    -- removed build_notification_text: now simple inline text
-
-    -- build notification text from info
-    local function build_notification_text(info)
-        info = info or {}
-        local parts = {}
-        local raw_selected = (type(flags["notif_info"]) == "table") and flags["notif_info"] or {}
-        
-        -- normalize to array
-        local selected = {}
-        if raw_selected[1] ~= nil then
-            for i = 1, #raw_selected do
-                selected[#selected+1] = tostring(raw_selected[i])
-            end
-        else
-            for k, v in pairs(raw_selected) do
-                if v then selected[#selected+1] = tostring(k) end
-            end
-        end
-        
-        -- get name
-        local name = ""
-        if info.player then
-            if typeof(info.player) == "Instance" then
-                if flags["notif_name"] == "DisplayName" then
-                    name = info.player.DisplayName or info.player.Name or "Player"
-                else
-                    name = info.player.Name or info.player.DisplayName or "Player"
-                end
-            else
-                name = tostring(info.player)
-            end
-        end
-        
-        -- build parts
-        for _, item in ipairs(selected) do
-            if item == "Damage" and info.damage then
-                local dmg = tonumber(info.damage)
-                if dmg then table.insert(parts, "Dmg: " .. tostring(math.floor(dmg))) end
-            elseif item == "Health" and info.health then
-                local hp = tonumber(info.health)
-                if hp then table.insert(parts, "HP: " .. tostring(math.floor(hp))) end
-            elseif item == "RemainingHP" and info.remaining_health then
-                local r = tonumber(info.remaining_health)
-                if r then table.insert(parts, "Left: " .. tostring(math.floor(r))) end
-            elseif item == "Part" and info.part then
-                table.insert(parts, "Part: " .. tostring(info.part))
-            end
-        end
-        
-        -- combine
-        if #parts > 0 then
-            return name .. " | " .. table.concat(parts, " | ")
-        else
-            return name .. " | Hit"
-        end
-    end
 
     -- single OnHit subscription for all features
     utility:OnHit(function(info)
@@ -2051,29 +1917,19 @@ do
                     Cloned.Humanoid:Destroy()
                 end
 
-                -- get color from flags (handle hex format from our library)
-                local hitchams_color = flags["hitchams_color"] or "#ff0000"
-                if type(hitchams_color) == "string" then
-                    -- convert hex to Color3
-                    local hex = hitchams_color:gsub("#", "")
-                    local r = tonumber(hex:sub(1, 2), 16) or 255
-                    local g = tonumber(hex:sub(3, 4), 16) or 0
-                    local b = tonumber(hex:sub(5, 6), 16) or 0
-                    hitchams_color = Color3.fromRGB(r, g, b)
-                elseif type(hitchams_color) == "table" and hitchams_color.r and hitchams_color.g and hitchams_color.b then
-                    -- handle RGB table format
-                    hitchams_color = Color3.fromRGB(hitchams_color.r * 255, hitchams_color.g * 255, hitchams_color.b * 255)
-                else
-                    -- fallback to red
-                    hitchams_color = Color3.fromRGB(255, 0, 0)
-                end
+                -- цвет из актуальных флагов UI без фолбэка
+                local lib_flags = (library and library.flags) or {}
+                local raw = (lib_flags["hitchams_color"] or lib_flags["hitcham_color"]) or nil
+                local hitchams_color = raw and (raw.Color or raw) or nil
                 
                 for _, BodyPart in ipairs(Cloned:GetChildren()) do
                     if BodyPart:IsA("BasePart") then
                         BodyPart.CanCollide = false
                         BodyPart.Anchored = true
                         BodyPart.Transparency = flags["hitchams_transparency"] or 0.5
-                        BodyPart.Color = hitchams_color
+                        if hitchams_color then
+                            BodyPart.Color = hitchams_color
+                        end
                         BodyPart.Material = flags["hitchams_material"] or Enum.Material.Neon
                     end
                 end
@@ -2081,7 +1937,9 @@ do
                 if Cloned:FindFirstChild("Head") then
                     local Head = Cloned.Head
                     Head.Transparency = flags["hitchams_transparency"] or 0.5
-                    Head.Color = hitchams_color
+                    if hitchams_color then
+                        Head.Color = hitchams_color
+                    end
                     Head.Material = flags["hitchams_material"] or Enum.Material.Neon
 
                     if Head:FindFirstChild("face") then
@@ -2116,7 +1974,7 @@ do
 
         -- UI: HitChams
         local hitchams_toggle = OnDamage:toggle({ name = "HitChams", flag = "hitchams_enabled", default = false })
-        local hitchams_colorpicker = OnDamage:colorpicker({ name = "Color", flag = "hitchams_color", default = Color3.fromRGB(255, 0, 0) })
+        hitchams_toggle:colorpicker({ name = "Color", flag = "hitchams_color", default = Color3.fromRGB(255, 0, 0) })
         
         local hitchams_dep = OnDamage:dependency_box()
         hitchams_dep:setup_dependencies({ { hitchams_toggle, true } })
@@ -2992,22 +2850,6 @@ do
         "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
         "RightUpperLeg", "RightLowerLeg", "RightFoot"
     }
-    
-    -- cleanup function
-    local function cleanup_tracer()
-        if tracer_state.line then
-            pcall(function() tracer_state.line:Remove() end)
-            tracer_state.line = nil
-        end
-        if tracer_state.line_outline then
-            pcall(function() tracer_state.line_outline:Remove() end)
-            tracer_state.line_outline = nil
-        end
-        if tracer_state.connection then
-            pcall(function() tracer_state.connection:Disconnect() end)
-            tracer_state.connection = nil
-        end
-    end
 
 end
 
@@ -3404,11 +3246,6 @@ do
                     end
                 end
             end
-        end
-        
-        -- target highlight update (throttled)
-        if framework and framework.update_target_highlight then
-            framework:update_target_highlight()
         end
     end))
 end
