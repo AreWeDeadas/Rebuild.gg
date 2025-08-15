@@ -1,5 +1,5 @@
 loadstring(game:HttpGet("https://pastebin.com/raw/gimbTwW1"))()
-local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/another"))()
+local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/vvv"))()
 
 -- apply default theme before creating UI
 library:update_theme("accent", hex("#ffffff"))
@@ -57,6 +57,7 @@ local vars = {
 	cf = CFrame,
 	v2 = Vector2,
 	v3 = Vector3,
+	task = task,
 }
 
 -- enable debug logs
@@ -291,7 +292,7 @@ do
 
 			-- refresh humanoid if character changed (respawn) or missing
 			local char = current.Character
-			if char ~= dd.last_char then
+			if char ~= dd.last_char or (dd.hum and not dd.hum.Parent) then
 				dd.last_char = char
 				dd.hum = char and char:FindFirstChildOfClass("Humanoid") or nil
 				dd.last_health = nil
@@ -299,6 +300,8 @@ do
 				-- reconnect HealthChanged for new humanoid
 				if dd.hum_conn then pcall(function() dd.hum_conn:Disconnect() end) dd.hum_conn = nil end
 				if dd.hum then
+					-- wait for humanoid to be ready
+					vars.rs.Heartbeat:Wait()
 					if flags and flags["Debug"] then
 						print("[DD] humanoid bound for:", current and current.Name)
 					end
@@ -323,7 +326,7 @@ do
 								if flags and flags["Debug"] then
 									print("[DD] hit:", hitinfo.player and hitinfo.player.Name, hitinfo.damage, hitinfo.health, hitinfo.max, hitinfo.percentage)
 								end
-								utility:_emit_hit(hitinfo)
+								-- utility:_emit_hit(hitinfo) -- disabled: using new damage detection system
 							end
 							dd.last_health = ch
 							dd.last_max = cm
@@ -757,7 +760,7 @@ do
             enabled = false,
             folder = nil,
             handles = {},
-            fill_color = Color3.fromRGB(255, 0, 0),
+            fill_color = hex("#ffffff"),
             fill_transparency = 0.5,
             last_target = nil
         }
@@ -862,7 +865,7 @@ do
         chams_toggle:colorpicker({
             name = "Color",
             flag = "chams_color",
-            default = Color3.fromRGB(255, 0, 0),
+            default = hex("#ffffff"),
             callback = function(color)
                 chams_state.fill_color = color
                 update_chams()
@@ -1884,82 +1887,16 @@ do
     do
         -- no armor helper (removed by request)
 
-        -- build notification text
-        local function build_notification_text(info)
-            -- guard info and selection
-            info = info or {}
-            local parts = {}
-            local raw_selected = (type(flags["notif_info"]) == "table") and flags["notif_info"] or {}
-            -- normalize selected to array form
-            local selected = {}
-            if raw_selected[1] ~= nil then
-                for i = 1, #raw_selected do
-                    selected[#selected+1] = tostring(raw_selected[i])
-                end
-            else
-                for k, v in pairs(raw_selected) do
-                    if v then selected[#selected+1] = tostring(k) end
-                end
-            end
-            
-            -- get player name
-            local name = ""
-            if info.player then
-                if typeof(info.player) == "Instance" then
-                    if flags["notif_name"] == "DisplayName" then
-                        name = info.player.DisplayName or info.player.Name or "Player"
-                    else
-                        name = info.player.Name or info.player.DisplayName or "Player"
-                    end
-                else
-                    name = tostring(info.player)
-                end
-            end
-            
-            -- build info parts based on selection (no armor)
-            for _, item in ipairs(selected) do
-                if item == "Damage" and info.damage then
-                    local dmg = tonumber(info.damage)
-                    if dmg then table.insert(parts, "Dmg: " .. tostring(math.floor(dmg))) end
-                elseif item == "Health" and info.health then
-                    local hp = tonumber(info.health)
-                    if hp then table.insert(parts, "HP: " .. tostring(math.floor(hp))) end
-                elseif item == "RemainingHP" and info.remaining_health then
-                    local r = tonumber(info.remaining_health)
-                    if r then table.insert(parts, "Left: " .. tostring(math.floor(r))) end
-                elseif item == "Part" and info.part then
-                    table.insert(parts, "Part: " .. tostring(info.part))
-                end
-            end
-            
-            if #parts > 0 then
-                return name .. " | " .. table.concat(parts, " | ")
-            else
-                return name .. " | Hit"
-            end
-        end
-
         -- UI: notifications
         local notif_toggle = OnDamage:toggle({ name = "Notifications", flag = "notif_enabled", default = false })
         local notif_dep = OnDamage:dependency_box()
         notif_dep:setup_dependencies({ { notif_toggle, true } })
         notif_dep:slider({ name = "Duration", flag = "notif_duration", min = 0.5, max = 3, default = 1.5, interval = 0.1 })
-        notif_dep:dropdown({ 
-            name = "Info", 
-            flag = "notif_info", 
-            items = { "Damage", "Health", "RemainingHP", "Part" },
-            multi = true,
-            default = { "Damage", "RemainingHP" }
-        })
-        notif_dep:dropdown({ 
-            name = "Name", 
-            flag = "notif_name", 
-            items = { "DisplayName", "OriginalName" },
-            default = "DisplayName"
-        })
 
     end
     -- notifications system end
+
+    -- removed build_notification_text: now simple inline text
 
     -- build notification text from info
     local function build_notification_text(info)
@@ -2027,8 +1964,15 @@ do
             end
         end
         
+        -- hitchams (moved here to work properly)
+        if flags and flags["hitchams_enabled"] and info and info.player then
+            HitChams(info.player)
+        end
+        
         -- notifications
-        if not flags or not flags["notif_enabled"] then return end
+        local f = flags or (library and library.flags) or {}
+        local enabled = (f["notif_enabled"] == true) or (f["notif_enabled"] == 1) or (f["notif_enabled"] == "true")
+        if not enabled then return end
         
         -- enrich info
         if info and info.player and info.player.Character then
@@ -2040,21 +1984,497 @@ do
             end
         end
         
-        -- build text
-        local text = build_notification_text(info)
-        local duration = tonumber(flags["notif_duration"]) or 1.5
-        if duration <= 0 or duration > 10 or duration ~= duration then
-            duration = 1.5
+        -- simple text: "Name HP"
+        local name = "Player"
+        if info then
+            if info.player then
+                if typeof(info.player) == "Instance" then
+                    name = info.player.Name or "Player"
+                else
+                    name = tostring(info.player)
+                end
+            elseif info.name then
+                name = tostring(info.name)
+            end
         end
-        
-        -- show notification
-        if library then
-            library:notification({
-                text = text,
-                time = duration
-            })
+        local hp = 0
+        if info and info.health then
+            local hpn = tonumber(info.health)
+            hp = hpn and math.floor(hpn) or 0
+        end
+        local text = tostring(name) .. " " .. tostring(hp)
+        local duration = tonumber((f and f["notif_duration"]) or flags and flags["notif_duration"]) or 1.5
+        if duration <= 0 or duration > 10 or duration ~= duration then duration = 1.5 end
+        if library and library.notification then
+            library:notification({ text = text, time = duration })
         end
     end)
+
+    -- hitchams system start
+    local HitChams -- forward declaration
+    do
+        HitChams = function(Player)
+            if not flags["hitchams_enabled"] then return end
+
+            if Player and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+                Player.Character.Archivable = true
+                local Cloned = Player.Character:Clone()
+                Cloned.Name = "Player Clone"
+
+                local BodyParts = {
+                    "Head", "UpperTorso", "LowerTorso",
+                    "LeftUpperArm", "LeftLowerArm", "LeftHand",
+                    "RightUpperArm", "RightLowerArm", "RightHand",
+                    "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+                    "RightUpperLeg", "RightLowerLeg", "RightFoot"
+                }
+
+                for _, Part in ipairs(Cloned:GetChildren()) do
+                    if Part:IsA("BasePart") then
+                        local PartValid = false
+                        for _, validPart in ipairs(BodyParts) do
+                            if Part.Name == validPart then
+                                PartValid = true
+                                break
+                            end
+                        end
+                        
+                        if not PartValid then
+                            Part:Destroy()
+                        end
+                    elseif Part:IsA("Accessory") or Part:IsA("Tool") or Part.Name == "face" or Part:IsA("Shirt") or Part:IsA("Pants") or Part:IsA("Hat") then
+                        Part:Destroy()
+                    end
+                end
+
+                if Cloned:FindFirstChild("Humanoid") then
+                    Cloned.Humanoid:Destroy()
+                end
+
+                -- get color from flags (handle hex format from our library)
+                local hitchams_color = flags["hitchams_color"] or "#ff0000"
+                if type(hitchams_color) == "string" then
+                    -- convert hex to Color3
+                    local hex = hitchams_color:gsub("#", "")
+                    local r = tonumber(hex:sub(1, 2), 16) or 255
+                    local g = tonumber(hex:sub(3, 4), 16) or 0
+                    local b = tonumber(hex:sub(5, 6), 16) or 0
+                    hitchams_color = Color3.fromRGB(r, g, b)
+                elseif type(hitchams_color) == "table" and hitchams_color.r and hitchams_color.g and hitchams_color.b then
+                    -- handle RGB table format
+                    hitchams_color = Color3.fromRGB(hitchams_color.r * 255, hitchams_color.g * 255, hitchams_color.b * 255)
+                else
+                    -- fallback to red
+                    hitchams_color = Color3.fromRGB(255, 0, 0)
+                end
+                
+                for _, BodyPart in ipairs(Cloned:GetChildren()) do
+                    if BodyPart:IsA("BasePart") then
+                        BodyPart.CanCollide = false
+                        BodyPart.Anchored = true
+                        BodyPart.Transparency = flags["hitchams_transparency"] or 0.5
+                        BodyPart.Color = hitchams_color
+                        BodyPart.Material = flags["hitchams_material"] or Enum.Material.Neon
+                    end
+                end
+
+                if Cloned:FindFirstChild("Head") then
+                    local Head = Cloned.Head
+                    Head.Transparency = flags["hitchams_transparency"] or 0.5
+                    Head.Color = hitchams_color
+                    Head.Material = flags["hitchams_material"] or Enum.Material.Neon
+
+                    if Head:FindFirstChild("face") then
+                        Head.face:Destroy()
+                    end
+                end
+
+                Cloned.Parent = game.Workspace
+
+                local tweenInfo = TweenInfo.new(
+                    flags["hitchams_duration"] or 2,
+                    Enum.EasingStyle.Sine,
+                    Enum.EasingDirection.InOut,
+                    0,
+                    true
+                )
+
+                for _, BodyPart in ipairs(Cloned:GetChildren()) do
+                    if BodyPart:IsA("BasePart") then
+                        local tween = game:GetService("TweenService"):Create(BodyPart, tweenInfo, { Transparency = 1 })
+                        tween:Play()
+                    end
+                end
+
+                task.delay(flags["hitchams_duration"] or 2, function()
+                    if Cloned and Cloned.Parent then
+                        Cloned:Destroy()
+                    end
+                end)
+            end
+        end
+
+        -- UI: HitChams
+        local hitchams_toggle = OnDamage:toggle({ name = "HitChams", flag = "hitchams_enabled", default = false })
+        local hitchams_colorpicker = OnDamage:colorpicker({ name = "Color", flag = "hitchams_color", default = Color3.fromRGB(255, 0, 0) })
+        
+        local hitchams_dep = OnDamage:dependency_box()
+        hitchams_dep:setup_dependencies({ { hitchams_toggle, true } })
+        hitchams_dep:dropdown({ 
+            name = "Material", 
+            flag = "hitchams_material", 
+            items = { "Neon", "ForceField", "Glass", "Plastic", "Metal", "Concrete" },
+            default = "Neon"
+        })
+        hitchams_dep:slider({ name = "Duration", flag = "hitchams_duration", min = 0.5, max = 5, default = 2, interval = 0.1 })
+        hitchams_dep:slider({ name = "Trs", flag = "hitchams_transparency", min = 0, max = 1, default = 0.5, interval = 0.05 })
+
+        -- HitChams is now integrated into main OnHit subscription above
+    end
+    -- hitchams system end
+    
+    -- hiteffects system start
+    do
+        local effect_types = {}
+        local effect_folder = nil
+        
+        -- создаем папку для эффектов
+        local function get_effects_folder()
+            if not effect_folder or not effect_folder.Parent then
+                effect_folder = workspace:FindFirstChild("RebuildHitEffects") or Instance.new("Folder")
+                effect_folder.Name = "RebuildHitEffects"
+                effect_folder.Parent = workspace
+            end
+            return effect_folder
+        end
+        
+        -- инициализация эффектов
+        local function init_effects()
+            -- Coom
+            local Cum = Instance.new("Attachment")
+            local foam = Instance.new("ParticleEmitter")
+            foam.Name = "Foam"
+            foam.LightInfluence = 0.5
+            foam.Lifetime = NumberRange.new(1, 1)
+            foam.SpreadAngle = Vector2.new(360, -360)
+            foam.VelocitySpread = 360
+            foam.Speed = NumberRange.new(20, 20)
+            foam.Brightness = 2.5
+            foam.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.1, 0.65), NumberSequenceKeypoint.new(0.65, 1.42), NumberSequenceKeypoint.new(1, 0)})
+            foam.Enabled = false
+            foam.Acceleration = Vector3.new(0, -66, 0)
+            foam.Rate = 100
+            foam.Texture = "rbxassetid://8297030850"
+            foam.Rotation = NumberRange.new(-90, -90)
+            foam.Orientation = Enum.ParticleOrientation.VelocityParallel
+            foam.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)) -- белый цвет по умолчанию
+            foam.Parent = Cum
+            
+            effect_types["Cum"] = Cum
+            
+            -- Particle
+            local particle = Instance.new("Attachment")
+            
+            local dots1 = Instance.new("ParticleEmitter")
+            dots1.Name = "Dots 1"
+            dots1.LightEmission = 1
+            dots1.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)) -- белый цвет по умолчанию
+            dots1.LockedToPart = false
+            dots1.ZOffset = 10
+            dots1.Texture = "rbxassetid://7216849075"
+            dots1.VelocitySpread = 360
+            dots1.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 0.663)})
+            dots1.Lifetime = NumberRange.new(1, 5)
+            dots1.Speed = NumberRange.new(1, 210)
+            dots1.SpreadAngle = Vector2.new(360, -360)
+            dots1.Rate = 60
+            dots1.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.428, 0), NumberSequenceKeypoint.new(1, 0.627)})
+            dots1.Enabled = false
+            dots1.Parent = particle
+            
+            local dots2 = Instance.new("ParticleEmitter")
+            dots2.Name = "Dots 2"
+            dots2.LightEmission = 1
+            dots2.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)) -- белый цвет по умолчанию
+            dots2.LockedToPart = false
+            dots2.ZOffset = 10
+            dots2.Texture = "rbxassetid://7216849075"
+            dots2.VelocitySpread = 360
+            dots2.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 0.663)})
+            dots2.Lifetime = NumberRange.new(1, 5)
+            dots2.Speed = NumberRange.new(1, 210)
+            dots2.SpreadAngle = Vector2.new(360, -360)
+            dots2.Rate = 100
+            dots2.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.502, 1.438), NumberSequenceKeypoint.new(0.925, 1.125), NumberSequenceKeypoint.new(1, 0.397)})
+            dots2.Enabled = false
+            dots2.Orientation = Enum.ParticleOrientation.FacingCamera
+            dots2.Parent = particle
+            
+            effect_types["Particle"] = particle
+
+            -- Break (ForceField-Break-01)
+            local breakEff = Instance.new("Attachment")
+
+            local break2 = Instance.new("ParticleEmitter")
+            break2.Name = "Break2"
+            break2.RotSpeed = NumberRange.new(1000)
+            break2.VelocitySpread = -360
+            break2.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)) -- белый цвет по умолчанию
+            break2.Rate = 1
+            break2.Texture = "rbxassetid://11973936966"
+            break2.Rotation = NumberRange.new(-360, 360)
+            break2.Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1, 0),
+                NumberSequenceKeypoint.new(0.10972569137811661, 0.27699530124664307, 0),
+                NumberSequenceKeypoint.new(0.5, 0, 0),
+                NumberSequenceKeypoint.new(1, 1, 0)
+            })
+            break2.Lifetime = NumberRange.new(0.5)
+            break2.Speed = NumberRange.new(0.01)
+            break2.LightEmission = 0.5
+            break2.SpreadAngle = Vector2.new(-360, 360)
+            break2.Size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 6, 0),
+                NumberSequenceKeypoint.new(1, 6, 0)
+            })
+            break2.Enabled = false
+            break2.Parent = breakEff
+
+            local break3 = Instance.new("ParticleEmitter")
+            break3.Name = "Break3"
+            break3.RotSpeed = NumberRange.new(-150, 150)
+            break3.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)) -- белый цвет по умолчанию
+            break3.ZOffset = 4
+            break3.Rotation = NumberRange.new(-360, 360)
+            break3.Texture = "rbxassetid://5726444189"
+            break3.Lifetime = NumberRange.new(0.5)
+            break3.Speed = NumberRange.new(0.01)
+            break3.LightEmission = 1
+            break3.Rate = 1
+            break3.Size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 7, 0),
+                NumberSequenceKeypoint.new(1, 7, 0)
+            })
+            break3.Enabled = false
+            break3.Parent = breakEff
+
+            local break1 = Instance.new("ParticleEmitter")
+            break1.Name = "Break1"
+            break1.VelocitySpread = -360
+            break1.Texture = "rbxassetid://12239789629"
+            break1.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)) -- белый цвет по умолчанию
+            break1.LockedToPart = true
+            break1.ZOffset = 3
+            break1.LightEmission = 0.5
+            break1.Rotation = NumberRange.new(-360, 360)
+            break1.Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1, 0),
+                NumberSequenceKeypoint.new(0.5, 0, 0),
+                NumberSequenceKeypoint.new(1, 1, 0)
+            })
+            break1.Lifetime = NumberRange.new(0.5)
+            break1.Speed = NumberRange.new(0.01)
+            break1.SpreadAngle = Vector2.new(-360, 360)
+            break1.Rate = 1
+            break1.Size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 10, 0),
+                NumberSequenceKeypoint.new(1, 10, 0)
+            })
+            break1.Enabled = false
+            break1.Parent = breakEff
+
+            effect_types["Break"] = breakEff
+        end
+        
+        -- утилита: нормализует значение в Color3
+        local function normalize_color(v)
+            if typeof(v) == "Color3" then return v end
+            if typeof(v) == "table" then
+                -- поддержка структур от colorpicker: { Color = Color3, ... }
+                local inner = v.Color or v.color or v.Value or v.value
+                if inner and typeof(inner) == "Color3" then
+                    return inner
+                end
+                -- поддержка таблиц с r/g/b или R/G/B, а также массив [r,g,b]
+                local r,g,b = v.r or v.R or v[1], v.g or v.G or v[2], v.b or v.B or v[3]
+                if r and g and b then
+                    if r <= 1 and g <= 1 and b <= 1 then
+                        return Color3.new(r, g, b)
+                    else
+                        return Color3.fromRGB(r, g, b)
+                    end
+                end
+            end
+            if typeof(v) == "string" then
+                -- попытка распарсить #RRGGBB
+                local hex = v:match("#?([%da-fA-F]+)")
+                if hex and (#hex == 6) then
+                    local r = tonumber(hex:sub(1,2), 16)
+                    local g = tonumber(hex:sub(3,4), 16)
+                    local b = tonumber(hex:sub(5,6), 16)
+                    if r and g and b then return Color3.fromRGB(r,g,b) end
+                end
+            end
+            return Color3.fromRGB(255, 0, 0)
+        end
+
+        -- применить эффект
+        function HitEffect(target, effect_type)
+            if not target or not target.Character then return end
+            
+            local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            
+            -- инициализируем эффекты если еще не созданы
+            if not next(effect_types) then
+                init_effects()
+            end
+            
+            local effect_template = effect_types[effect_type]
+            if not effect_template then return end
+            
+            local effect = effect_template:Clone()
+            
+            -- получаем цвет из флага ПЕРЕД установкой Parent (с откатом на старый флаг)
+            local lib_flags = library and library.flags or {}
+            local color = normalize_color(
+                (lib_flags["hiteffects_color"] or lib_flags["hiteffect_color"]) or Color3.fromRGB(255, 255, 255)
+            )
+            
+            -- применяем цвет ДО установки Parent (один ключ, единый цвет)
+            for _, obj in pairs(effect:GetDescendants()) do
+                if obj:IsA("ParticleEmitter") then
+                    obj.Color = ColorSequence.new(color)
+                elseif obj:IsA("Trail") then
+                    obj.Color = ColorSequence.new(color)
+                elseif obj:IsA("Beam") then
+                    obj.Color = ColorSequence.new(color)
+                end
+            end
+            
+            -- теперь устанавливаем Parent
+            effect.Parent = hrp
+            
+            -- активируем эмиттеры ПОСЛЕ установки Parent
+            for _, obj in pairs(effect:GetDescendants()) do
+                if obj:IsA("ParticleEmitter") then
+                    obj:Emit(obj.Rate or 100)
+                end
+            end
+            
+            -- удаляем через 2 секунды
+            task.delay(2, function()
+                if effect and effect.Parent then
+                    effect:Destroy()
+                end
+            end)
+        end
+        
+        -- глобальная функция для вызова из damage detection
+        _G.HitEffect = HitEffect
+        
+        -- UI: HitEffects
+        local hiteffect_toggle = OnDamage:toggle({ name = "HitEffects", flag = "hiteffect_enabled", default = false })
+        -- пикер привязан к тогглу (всегда рядом), без зависимости
+        hiteffect_toggle:colorpicker({ name = "Color", flag = "hiteffects_color", default = Color3.fromRGB(255, 255, 255) })
+
+        local hiteffect_dep = OnDamage:dependency_box()
+        hiteffect_dep:setup_dependencies({ { hiteffect_toggle, true } })
+        hiteffect_dep:dropdown({
+            name = "Type",
+            flag = "hiteffect_type",
+            items = {"Cum", "Particle", "Break"},
+            default = "Cum"
+        })
+    end
+    -- hiteffects system end
+    
+    -- damage detection system start
+    do
+        local targetHealth = nil
+        local last_target = nil
+        local last_damage_time = 0
+        local damage_cooldown = 0.1 -- минимальная задержка между регистрациями урона
+        local min_damage_threshold = 0.5 -- минимальный урон для регистрации
+        
+        local function updateTargetHealth()
+            local target = targeting_state and targeting_state.current
+            if not target or not target.Character then 
+                targetHealth = nil
+                last_target = nil
+                return 
+            end
+            
+            local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
+            if not humanoid then 
+                targetHealth = nil
+                return 
+            end
+            
+            -- reset health tracking when target changes
+            if last_target ~= target then
+                targetHealth = humanoid.Health
+                last_target = target
+                last_damage_time = 0
+                return
+            end
+            
+            local currentHealth = humanoid.Health
+            local current_time = tick()
+            
+            -- check for damage with cooldown and threshold
+            if targetHealth and currentHealth < targetHealth then
+                local damageDealt = targetHealth - currentHealth
+                
+                -- проверяем cooldown и минимальный урон
+                if damageDealt >= min_damage_threshold and (current_time - last_damage_time) >= damage_cooldown then
+                    last_damage_time = current_time
+                    
+                    -- trigger hitchams
+                    if flags and flags["hitchams_enabled"] then
+                        HitChams(target)
+                    end
+                    
+                    -- trigger hiteffects
+                    if flags and flags["hiteffect_enabled"] then
+                        local effect_type = flags["hiteffect_type"] or "Cum"
+                        if _G.HitEffect then
+                            _G.HitEffect(target, effect_type)
+                        end
+                    end
+                    
+                    -- trigger hitsound
+                    if flags and flags["hitsound_enabled"] then
+                        local file = flags["hs_file"]
+                        if file and file ~= "" then
+                            play_hitsound(file)
+                        end
+                    end
+                    
+                    -- trigger hit notification
+                    local enabled = flags and flags["notif_enabled"]
+                    if enabled then
+                        local name = target.Name or "Player"
+                        local hp = math.floor(math.max(currentHealth, 0))
+                        local text = tostring(name) .. " " .. tostring(hp)
+                        local duration = tonumber(flags["notif_duration"]) or 1.5
+                        if duration <= 0 or duration > 10 or duration ~= duration then duration = 1.5 end
+                        if library and library.notification then
+                            library:notification({ text = text, time = duration })
+                        end
+                    end
+                end
+            end
+            
+            targetHealth = currentHealth
+        end
+        
+        -- hook into render loop
+        vars.rs.Stepped:Connect(function()
+            updateTargetHealth()
+        end)
+    end
+    -- damage detection system end
 
     -- Aimbot section
     local aimbot_toggle = AimSec:toggle({
@@ -2087,7 +2507,7 @@ do
         name = "Mode",
         flag = "pred_mode",
         items = { "Sets", "Auto" },
-        default = "Sets",
+        default = "Auto",
     })
     
     -- XYZ labels and textboxes (visible only in Sets mode)
@@ -3001,3 +3421,9 @@ for index, value in next, themes.preset do
 		library:update_theme(index, value)
 	end)
 end
+
+-- показываем уведомление о загрузке скрипта
+library:notification({
+    text = "hello",
+    time = 5
+})
