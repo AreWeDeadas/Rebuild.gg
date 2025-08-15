@@ -1808,6 +1808,54 @@ do
         })
     end
     
+    -- Tweaks: LookAtTarget toggle
+    do
+        local lookat_conn
+        
+        local function disconnect_lookat()
+            if lookat_conn then
+                lookat_conn:Disconnect()
+                lookat_conn = nil
+            end
+        end
+        
+        local function connect_lookat()
+            if lookat_conn then return end
+            lookat_conn = vars.rs.RenderStepped:Connect(function()
+                -- guards
+                local target = targeting_state and targeting_state.current
+                if not (target and utility:ValidateClient(target)) then return end
+                
+                local lchar = lp and lp.Character
+                if not lchar then return end
+                local lroot = lchar:FindFirstChild("HumanoidRootPart")
+                if not lroot then return end
+                
+                local part = utility:GetPreferredPart(target.Character)
+                if not part then return end
+                
+                local local_pos = lroot.Position
+                local dir = part.Position - local_pos
+                dir = vars.v3.new(dir.X, 0, dir.Z) -- yaw only
+                local mag = dir.Magnitude
+                if mag < 1e-6 then return end
+                
+                local aim_dir = dir.Unit
+                lroot.CFrame = vars.cf.new(local_pos, local_pos + aim_dir)
+            end)
+            table.insert(library.connections, lookat_conn)
+        end
+        
+        Tweaks:toggle({
+            name = "LookAtTarget",
+            flag = "lookat_enabled",
+            default = false,
+            callback = function(on)
+                if on then connect_lookat() else disconnect_lookat() end
+            end,
+        })
+    end
+    
     -- Tweaks: ForceReload (press R -> change loadout to knife slot3)
     do
         local UserInputService = game:GetService("UserInputService")
