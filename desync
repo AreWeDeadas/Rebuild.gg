@@ -1,0 +1,208 @@
+-- desync system start
+
+-- unified configuration
+local config = {
+    Desync = {
+        Enabled = false, -- включайте при первом вызове API
+        LogInterval = 2, -- сек
+    }
+}
+
+-- frequently used cache
+local vars = {
+    Players = game:GetService("Players"),
+    RunService = game:GetService("RunService"),
+    StarterGui = game:GetService("StarterGui"),
+    newcf = CFrame.new,
+    v3 = Vector3.new,
+    typeof = typeof,
+    task = task,
+    math = math,
+}
+
+local LocalPlayer = vars.Players.LocalPlayer
+local wait = task.wait
+
+-- module state
+local state = {
+    enabled = false,
+    targetCFrame = nil,   -- позиция десинка (куда «телепортируется» на кадр)
+    realCFrame = nil,     -- реальная позиция игрока (для маскировки и возврата)
+    hookInstalled = false,
+    logStarted = false,
+    followMode = false,   -- режим слежения: цель = текущий HRP каждый кадр
+}
+
+-- // Utility Functions
+local utility = {}
+
+function utility:ValidateClient(player)
+    if not player then return false end
+    local char = player.Character
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    local hrp = hum.RootPart
+    return hrp ~= nil
+end
+
+function utility:getPlayerParts(player)
+    local char = player and player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local hrp = hum and hum.RootPart
+    return char, hum, hrp
+end
+
+local function asCFrame(x, y, z)
+    local t = vars.typeof(x)
+    if t == "CFrame" then return x end
+    if t == "Vector3" then return vars.newcf(x) end
+    if t == "table" and x[1] and x[2] and x[3] then
+        return vars.newcf(x[1], x[2], x[3])
+    end
+    if t == "number" and type(y) == "number" and type(z) == "number" then
+        return vars.newcf(x, y, z)
+    end
+    return nil
+end
+
+-- перехват чтения CFrame для сокрытия резких смещений на кадр
+local function installHook()
+    if state.hookInstalled then return end
+    if not hookmetamethod or not newcclosure or not checkcaller then
+        -- среда не поддерживает перехват — пропустим
+        state.hookInstalled = true -- помечаем, чтобы не пытаться снова
+        return
+    end
+
+    local oldIndex
+    oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+        if not checkcaller() then
+            if key == "CFrame" and state.enabled then
+                local _, hum, hrp = utility:getPlayerParts(LocalPlayer)
+                if hrp and self == hrp and state.realCFrame then
+                    return state.realCFrame
+                end
+            end
+        end
+        return oldIndex(self, key)
+    end))
+
+    state.hookInstalled = true
+end
+
+-- основной цикл десинка: коротко переносит HRP в targetCFrame и возвращает обратно
+local function startHeartbeat()
+    if state.heartbeatConn then return end
+
+    state.heartbeatConn = vars.RunService.Heartbeat:Connect(function()
+        if not config.Desync.Enabled or not state.enabled then return end
+        if not utility:ValidateClient(LocalPlayer) then return end
+
+        local _, _, hrp = utility:getPlayerParts(LocalPlayer)
+        if not hrp then return end
+
+        state.realCFrame = hrp.CFrame
+        local target
+        if state.followMode then
+            target = hrp.CFrame
+        else
+            target = state.targetCFrame or state.realCFrame
+        end
+
+        -- перенос на кадр в цель, затем возврат
+        hrp.CFrame = target
+        vars.RunService.RenderStepped:Wait()
+        hrp.CFrame = state.realCFrame
+    end)
+end
+
+-- логгирование позиции десинка
+local function startLogger()
+    if state.logStarted then return end
+    state.logStarted = true
+
+    vars.task.spawn(function()
+        while true do
+            vars.task.wait(config.Desync.LogInterval)
+            if config.Desync.Enabled and state.enabled then
+                local pos
+                if state.targetCFrame then
+                    pos = state.targetCFrame.Position
+                else
+                    local _, _, hrp = utility:getPlayerParts(LocalPlayer)
+                    pos = hrp and hrp.Position or nil
+                end
+                if pos then
+                    print(string.format("[DesyncLibrary] Pos: (%.2f, %.2f, %.2f)", pos.X, pos.Y, pos.Z))
+                else
+                    print("[DesyncLibrary] Pos: nil (not set)")
+                end
+            end
+        end
+    end)
+end
+
+-- публичное API
+local DesyncLibrary = {}
+
+-- перемещение десинка в координаты/вектор/кадровый CFrame
+function DesyncLibrary.movedesyncto(x, y, z)
+    local cf = asCFrame(x, y, z)
+    if not cf then error("movedesyncto: invalid coordinates") end
+
+    state.targetCFrame = cf
+    state.followMode = false
+    config.Desync.Enabled = true
+    state.enabled = true
+
+    installHook()
+    startHeartbeat()
+    startLogger()
+
+    return cf
+end
+
+-- проверка текущей позиции десинка (возвращает Vector3 | nil)
+function DesyncLibrary.checksyncposition()
+    local pos
+    if state.targetCFrame then
+        pos = state.targetCFrame.Position
+    else
+        local _, _, hrp = utility:getPlayerParts(LocalPlayer)
+        pos = hrp and hrp.Position or nil
+    end
+    if pos then
+        print(string.format("[DesyncLibrary] Pos: (%.2f, %.2f, %.2f)", pos.X, pos.Y, pos.Z))
+    else
+        print("[DesyncLibrary] Pos: nil (not set)")
+    end
+    return pos
+end
+
+-- возвращает десинк к позиции локального игрока
+function DesyncLibrary.SynchronizeSyncWithPlayer()
+    if not utility:ValidateClient(LocalPlayer) then
+        error("SynchronizeSyncWithPlayer: player not ready")
+    end
+    -- follow mode: делаем цель равной текущему положению игрока динамически
+    state.targetCFrame = nil
+    state.followMode = true
+
+    config.Desync.Enabled = true
+    state.enabled = true
+
+    installHook()
+    startHeartbeat()
+    startLogger()
+
+    local _, _, hrp = utility:getPlayerParts(LocalPlayer)
+    return hrp and hrp.CFrame or nil
+end
+
+-- опционально экспортируем в getgenv для удобства
+pcall(function()
+    getgenv().DesyncLibrary = DesyncLibrary
+end)
+
+return DesyncLibrary
