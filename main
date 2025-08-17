@@ -60,6 +60,78 @@ do
 		return true
 	end
 
+	-- визуализация десинка start
+	local function ensure_visuals()
+		-- Part (создаем один раз)
+		if not state.viz_part then
+			local p = Instance.new("Part")
+			p.Name = "RB_DesyncViz"
+			p.Anchored = true
+			p.CanCollide = false
+			p.Massless = true
+			p.Material = Enum.Material.Neon
+			p.Color = Color3.fromRGB(255, 80, 80)
+			p.Size = Vector3.new(0.6, 0.6, 0.6)
+			p.Transparency = 0.1
+			p.Parent = workspace
+			state.viz_part = p
+		end
+		-- Tracer Line (Drawing)
+		if not state.viz_line then
+			local line = Drawing.new("Line")
+			line.Visible = false
+			line.Thickness = 2
+			line.Transparency = 1
+			line.Color = Color3.fromRGB(255, 80, 80)
+			state.viz_line = line
+		end
+	end
+
+	local function get_desync_cf()
+		if state.followMode then
+			local _, _, hrp = desync_utility:getPlayerParts(LocalPlayer)
+			return hrp and hrp.CFrame or nil
+		end
+		return state.targetCFrame or state.realCFrame
+	end
+
+	local function update_visuals()
+		if not state.viz_enabled then return end
+		if not desync_utility:ValidateClient(LocalPlayer) then return end
+		ensure_visuals()
+		local cf = get_desync_cf()
+		local part = state.viz_part
+		local line = state.viz_line
+		if not cf or not part or not line then return end
+		-- обновляем позицию парта
+		part.CFrame = cf
+		-- 2D трейсер от мыши к позиции парта
+		local pos = cf.Position
+		local v3p, on = desync_vars.cam:WorldToViewportPoint(pos)
+		local start2 = desync_vars.uis:GetMouseLocation()
+		local end2 = Vector2.new(v3p.X, v3p.Y)
+		line.From = start2
+		line.To = end2
+		line.Visible = on == true
+		-- сам Part включен/выключен видимостью через прозрачность
+		part.Transparency = 0.1
+	end
+
+	local function start_visuals()
+		if state.viz_conn then return end
+		state.viz_conn = desync_vars.RunService.RenderStepped:Connect(function()
+			if not state.viz_enabled then return end
+			update_visuals()
+		end)
+	end
+
+	local function stop_visuals()
+		if state.viz_conn then pcall(function() state.viz_conn:Disconnect() end) state.viz_conn = nil end
+		if state.viz_line then state.viz_line.Visible = false end
+		if state.viz_part then state.viz_part.Transparency = 1 end
+	end
+	-- визуализация десинка end
+
 	-- preferred body part for targeting
 	function utility:GetPreferredPart(char)
 		return char and (
@@ -383,6 +455,8 @@ do
 		typeof = typeof,
 		task = task,
 		math = math,
+		cam = workspace.CurrentCamera,
+		uis = game:GetService("UserInputService"),
 	}
 
 	local LocalPlayer = desync_vars.Players.LocalPlayer
@@ -396,6 +470,11 @@ do
 		hookInstalled = false,
 		logStarted = false,
 		followMode = false,   -- режим слежения: цель = текущий HRP каждый кадр
+		-- визуализация
+		viz_enabled = false,
+		viz_part = nil,
+		viz_line = nil,
+		viz_conn = nil,
 	}
 
 	-- // Utility Functions
@@ -563,6 +642,18 @@ do
 
 		local _, _, hrp = desync_utility:getPlayerParts(LocalPlayer)
 		return hrp and hrp.CFrame or nil
+	end
+
+	-- вкл/выкл визуализацию из UI/кода
+	function DesyncLibrary.SetVisualiseEnabled(enabled)
+		state.viz_enabled = enabled and true or false
+		if state.viz_enabled then
+			ensure_visuals()
+			start_visuals()
+		else
+			stop_visuals()
+		end
+		return state.viz_enabled
 	end
 
 	-- опционально экспортируем в getgenv для удобства
@@ -4032,10 +4123,29 @@ do
 		shop = shop and shop:FindFirstChild("Shop")
 		if not shop then return nil end
 		local items = shop:GetChildren()
+		-- сначала пробуем фиксированный индекс
 		local armor_item = items[16]
-		if not armor_item then return nil end
-		local head = armor_item:FindFirstChild("Head")
-		local cd = armor_item:FindFirstChildOfClass("ClickDetector")
+		local head, cd
+		if armor_item then
+			head = armor_item:FindFirstChild("Head")
+			if head then
+				cd = head:FindFirstChildOfClass("ClickDetector") or armor_item:FindFirstChildOfClass("ClickDetector")
+			end
+		end
+		-- запасной поиск по структуре (Head + ClickDetector)
+		if not (armor_item and head and cd) then
+			armor_item, head, cd = nil, nil, nil
+			for _, it in ipairs(items) do
+				local h = it:FindFirstChild("Head")
+				if h then
+					local detector = h:FindFirstChildOfClass("ClickDetector") or it:FindFirstChildOfClass("ClickDetector")
+					if detector then
+						armor_item, head, cd = it, h, detector
+						break
+					end
+				end
+			end
+		end
 		return armor_item, head, cd
 	end
 	
@@ -4053,27 +4163,34 @@ do
 						local _, head, clickdet = get_shop()
 						if head and clickdet then
 							if armor_val <= auto_armor_state.percent_to_buy and get_cash() >= 1000 then
-								-- move desync to shop
-								if _G.DesyncLibrary then
-									auto_armor_state.busy = true
-									_G.DesyncLibrary.movedesyncto(head.CFrame)
-									
-									-- click burst over several frames
-									for i = 1, 30 do
-										if auto_armor_state.stopped or not auto_armor_state.enabled then break end
-										if get_armor_value() and get_armor_value() >= 100 then break end
-										if get_cash() < 1000 then break end
-										vars.rs.RenderStepped:Wait()
-										pcall(fireclickdetector, clickdet)
-									end
-									
-									-- resync back to player
-									pcall(function()
-										_G.DesyncLibrary.SynchronizeSyncWithPlayer()
-									end)
-									auto_armor_state.busy = false
+							-- move desync to shop
+							if _G.DesyncLibrary then
+								auto_armor_state.busy = true
+								if flags and flags["Debug"] then print("[AutoArmor] moving to shop") end
+								_G.DesyncLibrary.movedesyncto(head.CFrame)
+								-- дождаться цикла десинка, чтобы позиция применялась перед кликами
+								pcall(function()
+									vars.rs.Heartbeat:Wait()
+									vars.rs.RenderStepped:Wait()
+								end)
+								
+								-- click burst over several frames
+								for i = 1, 30 do
+									if auto_armor_state.stopped or not auto_armor_state.enabled then break end
+									if get_armor_value() and get_armor_value() >= 100 then break end
+									if get_cash() < 1000 then break end
+									vars.rs.RenderStepped:Wait()
+									pcall(fireclickdetector, clickdet)
 								end
+								
+								-- resync back to player
+								pcall(function()
+									_G.DesyncLibrary.SynchronizeSyncWithPlayer()
+								end)
+								if flags and flags["Debug"] then print("[AutoArmor] resynced after purchase") end
+								auto_armor_state.busy = false
 							end
+						end
 						end
 					end
 				end
@@ -4355,7 +4472,17 @@ do
 		local voiding_state = {
 			enabled = false,
 			hb_conn = nil,
+			mode = "VoidStatic",
 		}
+
+		-- генераторы огромных случайных значений (без бесконечности)
+		local function rand_huge_abs()
+			-- 1e21 как достаточно большой масштаб (миллиарды/триллионы+)
+			return vars.math.random() * 1e21
+		end
+		local function rand_huge_signed()
+			return (vars.math.random() < 0.5 and -1 or 1) * rand_huge_abs()
+		end
 
 		local function start_voiding()
 			if voiding_state.hb_conn then return end
@@ -4365,7 +4492,35 @@ do
 				if voiding_state.enabled and not blocked then
 					pcall(function()
 						if _G.DesyncLibrary and _G.DesyncLibrary.movedesyncto then
-							_G.DesyncLibrary.movedesyncto(-18e18, -18e18, -18e18)
+							local m = voiding_state.mode
+							local x, y, z
+							if m == "VoidStatic" then
+								x, y, z = -18e18, -18e18, -18e18
+							elseif m == "VoidRandom" then
+								-- любой рандом, очень большие значения; Y всегда вниз
+								x = rand_huge_signed()
+								y = -rand_huge_abs()
+								z = rand_huge_signed()
+							elseif m == "SkyStatic" then
+								x, y, z = 18e20, 18e20, 18e20
+							elseif m == "SkyRandom" then
+								-- любой рандом, очень большие значения; Y всегда вверх
+								x = rand_huge_signed()
+								y = rand_huge_abs()
+								z = rand_huge_signed()
+							elseif m == "WorldRandom" then
+								-- полный 3D рандом огромных значений
+								x = rand_huge_signed()
+								y = rand_huge_signed()
+								z = rand_huge_signed()
+							elseif m == "Infinity" then
+								x = vars.math.huge
+								y = vars.math.huge
+								z = -vars.math.huge
+							else
+								x, y, z = -18e18, -18e18, -18e18
+							end
+							_G.DesyncLibrary.movedesyncto(x, y, z)
 						end
 					end)
 				end
@@ -4412,6 +4567,18 @@ do
 				else
 					stop_voiding()
 				end
+			end
+		})
+
+		-- зависимые элементы для Voiding
+		local void_dep = DesyncSec:dependency_box()
+		void_dep:setup_dependencies({ { voiding_toggle, true } })
+		void_dep:dropdown({
+			name = "Mode",
+			flag = "voiding_mode",
+			items = { "VoidStatic", "VoidRandom", "SkyStatic", "SkyRandom", "WorldRandom", "Infinity" },
+			callback = function(v)
+				voiding_state.mode = v
 			end
 		})
 
