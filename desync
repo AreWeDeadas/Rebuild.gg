@@ -21,7 +21,6 @@ local vars = {
 }
 
 local LocalPlayer = vars.Players.LocalPlayer
-local wait = task.wait
 
 -- module state
 local state = {
