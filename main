@@ -1,22 +1,5 @@
 loadstring(game:HttpGet("https://pastebin.com/raw/gimbTwW1"))()
-local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/vvv"))()
-
--- apply default theme before creating UI
-library:update_theme("accent", hex("#ffffff"))
-library:update_theme("contrast", rgbseq({
-	rgbkey(0, hex("#2d2d2d")),
-	rgbkey(1, hex("#101010")),
-}))
-library:update_theme("inline", hex("#313131"))
-library:update_theme("outline", hex("#000000"))
-library:update_theme("text", hex("#7b7b7b"))
-library:update_theme("text_outline", hex("#282828"))
-library:update_theme("glow", hex("#ffffff"))
-
--- load assets before creating UI
-library:load_assets()
--- Загрузить звуки
-library:load_sounds()
+local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/libraryv2"))()
 
 local window = library:window({
 	name = os.date("Rebuild.gg - skidded by 32vision - %b %d %Y - Private - onyxhub sucks - cursed by 32vision to win - creds to chagpt "),
@@ -380,6 +363,218 @@ do
 end
 -- utility system end
 
+-- desync system start
+do
+	-- unified configuration
+	local config = {
+		Desync = {
+			Enabled = false, -- включайте при первом вызове API
+			LogInterval = 2, -- сек
+		}
+	}
+
+	-- frequently used cache
+	local desync_vars = {
+		Players = game:GetService("Players"),
+		RunService = game:GetService("RunService"),
+		StarterGui = game:GetService("StarterGui"),
+		newcf = CFrame.new,
+		v3 = Vector3.new,
+		typeof = typeof,
+		task = task,
+		math = math,
+	}
+
+	local LocalPlayer = desync_vars.Players.LocalPlayer
+	local wait = task.wait
+
+	-- module state
+	local state = {
+		enabled = false,
+		targetCFrame = nil,   -- позиция десинка (куда «телепортируется» на кадр)
+		realCFrame = nil,     -- реальная позиция игрока (для маскировки и возврата)
+		hookInstalled = false,
+		logStarted = false,
+		followMode = false,   -- режим слежения: цель = текущий HRP каждый кадр
+	}
+
+	-- // Utility Functions
+	local desync_utility = {}
+
+	function desync_utility:ValidateClient(player)
+		if not player then return false end
+		local char = player.Character
+		if not char then return false end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then return false end
+		local hrp = hum.RootPart
+		return hrp ~= nil
+	end
+
+	function desync_utility:getPlayerParts(player)
+		local char = player and player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = hum and hum.RootPart
+		return char, hum, hrp
+	end
+
+	local function asCFrame(x, y, z)
+		local t = desync_vars.typeof(x)
+		if t == "CFrame" then return x end
+		if t == "Vector3" then return desync_vars.newcf(x) end
+		if t == "table" and x[1] and x[2] and x[3] then
+			return desync_vars.newcf(x[1], x[2], x[3])
+		end
+		if t == "number" and type(y) == "number" and type(z) == "number" then
+			return desync_vars.newcf(x, y, z)
+		end
+		return nil
+	end
+
+	-- перехват чтения CFrame для сокрытия резких смещений на кадр
+	local function installHook()
+		if state.hookInstalled then return end
+		if not hookmetamethod or not newcclosure or not checkcaller then
+			-- среда не поддерживает перехват — пропустим
+			state.hookInstalled = true -- помечаем, чтобы не пытаться снова
+			return
+		end
+
+		local oldIndex
+		oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+			if not checkcaller() then
+				if key == "CFrame" and state.enabled then
+					local _, hum, hrp = desync_utility:getPlayerParts(LocalPlayer)
+					if hrp and self == hrp and state.realCFrame then
+						return state.realCFrame
+					end
+				end
+			end
+			return oldIndex(self, key)
+		end))
+
+		state.hookInstalled = true
+	end
+
+	-- основной цикл десинка: коротко переносит HRP в targetCFrame и возвращает обратно
+	local function startHeartbeat()
+		if state.heartbeatConn then return end
+
+		state.heartbeatConn = desync_vars.RunService.Heartbeat:Connect(function()
+			if not config.Desync.Enabled or not state.enabled then return end
+			if not desync_utility:ValidateClient(LocalPlayer) then return end
+
+			local _, _, hrp = desync_utility:getPlayerParts(LocalPlayer)
+			if not hrp then return end
+
+			state.realCFrame = hrp.CFrame
+			local target
+			if state.followMode then
+				target = hrp.CFrame
+			else
+				target = state.targetCFrame or state.realCFrame
+			end
+
+			-- перенос на кадр в цель, затем возврат
+			hrp.CFrame = target
+			desync_vars.RunService.RenderStepped:Wait()
+			hrp.CFrame = state.realCFrame
+		end)
+	end
+
+	-- логгирование позиции десинка
+	local function startLogger()
+		if state.logStarted then return end
+		state.logStarted = true
+
+		desync_vars.task.spawn(function()
+			while true do
+				desync_vars.task.wait(config.Desync.LogInterval)
+				if config.Desync.Enabled and state.enabled then
+					local pos
+					if state.targetCFrame then
+						pos = state.targetCFrame.Position
+					else
+						local _, _, hrp = desync_utility:getPlayerParts(LocalPlayer)
+						pos = hrp and hrp.Position or nil
+					end
+					if pos then
+						print(string.format("[DesyncLibrary] Pos: (%.2f, %.2f, %.2f)", pos.X, pos.Y, pos.Z))
+					else
+						print("[DesyncLibrary] Pos: nil (not set)")
+					end
+				end
+			end
+		end)
+	end
+
+	-- публичное API
+	local DesyncLibrary = {}
+
+	-- перемещение десинка в координаты/вектор/кадровый CFrame
+	function DesyncLibrary.movedesyncto(x, y, z)
+		local cf = asCFrame(x, y, z)
+		if not cf then error("movedesyncto: invalid coordinates") end
+
+		state.targetCFrame = cf
+		state.followMode = false
+		config.Desync.Enabled = true
+		state.enabled = true
+
+		installHook()
+		startHeartbeat()
+		startLogger()
+
+		return cf
+	end
+
+	-- проверка текущей позиции десинка (возвращает Vector3 | nil)
+	function DesyncLibrary.checksyncposition()
+		local pos
+		if state.targetCFrame then
+			pos = state.targetCFrame.Position
+		else
+			local _, _, hrp = desync_utility:getPlayerParts(LocalPlayer)
+			pos = hrp and hrp.Position or nil
+		end
+		if pos then
+			print(string.format("[DesyncLibrary] Pos: (%.2f, %.2f, %.2f)", pos.X, pos.Y, pos.Z))
+		else
+			print("[DesyncLibrary] Pos: nil (not set)")
+		end
+		return pos
+	end
+
+	-- возвращает десинк к позиции локального игрока
+	function DesyncLibrary.SynchronizeSyncWithPlayer()
+		if not desync_utility:ValidateClient(LocalPlayer) then
+			error("SynchronizeSyncWithPlayer: player not ready")
+		end
+		-- follow mode: делаем цель равной текущему положению игрока динамически
+		state.targetCFrame = nil
+		state.followMode = true
+
+		config.Desync.Enabled = true
+		state.enabled = true
+
+		installHook()
+		startHeartbeat()
+		startLogger()
+
+		local _, _, hrp = desync_utility:getPlayerParts(LocalPlayer)
+		return hrp and hrp.CFrame or nil
+	end
+
+	-- опционально экспортируем в getgenv для удобства
+	pcall(function()
+		getgenv().DesyncLibrary = DesyncLibrary
+	end)
+
+	-- экспортируем в глобальную область для использования в других модулях
+	_G.DesyncLibrary = DesyncLibrary
+end
+-- desync system end
+
 -- shared targeting state (used by targeting UI and aimbot)
 local targeting_state = { current = nil }
 -- targeting system start
@@ -641,6 +836,11 @@ do
 	-- current target is stored in `targeting_state.current`
 	
 	function framework:selectTarget() 
+		-- проверка включен ли targeting
+		if not flags or not flags["Targeting_Enabled"] then 
+			return 
+		end
+		
 		if flags and flags["Debug"] then print("[Targeting] selectTarget called") end
 
 		if targeting_state.current then
@@ -650,6 +850,10 @@ do
 			-- очищаем информацию о цели для детекции урона
 			utility:ClearTargetInfo()
 			utility:ClearCurrentTarget()
+			-- обновляем видимость бинда
+			if targeting_keybind and targeting_keybind.update_visibility then
+				targeting_keybind.update_visibility()
+			end
 			if flags and flags["Debug"] then print("[Targeting] Target cleared") end
 		else
 			-- Acquire new target via utility
@@ -661,6 +865,10 @@ do
 				utility:SetCurrentTarget(best_player)
 				if flags and flags["target_highlight"] then
 					setup_target_highlight_bindings(best_player)
+				end
+				-- обновляем видимость бинда
+				if targeting_keybind and targeting_keybind.update_visibility then
+					targeting_keybind.update_visibility()
 				end
 				if flags and flags["Debug"] then
 					print("[Targeting] Target acquired:", targeting_state.current.Name, "(MouseDist:", vars.math.floor(best_dist), ")")
@@ -675,14 +883,21 @@ do
 	local rage_col = Aimbot:column()
 	local TargetSec, VisSec = rage_col:multi_section({ names = { "Targeting", "Visuals" } })
 	
+	local targeting_keybind -- объявляем переменную для доступа к keybind
 	local targeting_toggle = TargetSec:toggle({
 		name = "Enabled",
 		flag = "Targeting_Enabled",
 		default = false,
-	}):keybind({
+	})
+	
+	targeting_keybind = targeting_toggle:keybind({
 		name = "Target",
 		flag = "Target_Select_Bind",
 		default = "t",
+		visibility_condition = function()
+			-- Показываем в бинд листе только когда есть выбранная цель
+			return targeting_state and targeting_state.current ~= nil
+		end,
 		callback = function()
 			framework:selectTarget()
 		end,
@@ -690,7 +905,7 @@ do
 
   -- targeting mode dropdown (Sticky/Nuker)
   local targeting_mode = TargetSec:dropdown({
-      name = "Mode",
+      name = "Selecting Mode",
       flag = "Targeting_Mode",
       items = { "Sticky", "Nuker" },
       default = "Sticky",
@@ -713,7 +928,7 @@ do
     end
 
     local th_toggle = VisSec:toggle({
-        name = "TargetHighlight",
+        name = "Target Highlight",
         flag = "target_highlight",
         default = false,
         callback = function(state)
@@ -728,29 +943,29 @@ do
     th_toggle:colorpicker({ name = "Fill", flag = "th_fill", default = Color3.fromRGB(255, 255, 0), callback = function()
         refresh_hl_from_ui()
     end })
-    th_toggle:colorpicker({ name = "Out",  flag = "th_out",  default = Color3.fromRGB(0, 0, 0), callback = function()
+    th_toggle:colorpicker({ name = "Outline",  flag = "th_out",  default = Color3.fromRGB(0, 0, 0), callback = function()
         refresh_hl_from_ui()
     end })
     -- occluded colorpickers (для случая, когда цель не видима)
-    th_toggle:colorpicker({ name = "OccFill", flag = "th_occ_fill", default = Color3.fromRGB(0, 170, 255), callback = function()
+    th_toggle:colorpicker({ name = "OccludedFill", flag = "th_occ_fill", default = Color3.fromRGB(0, 170, 255), callback = function()
         refresh_hl_from_ui()
     end })
-    th_toggle:colorpicker({ name = "OccOut",  flag = "th_occ_out",  default = Color3.fromRGB(0, 0, 0), callback = function()
+    th_toggle:colorpicker({ name = "OccludedOutline",  flag = "th_occ_out",  default = Color3.fromRGB(0, 0, 0), callback = function()
         refresh_hl_from_ui()
     end })
 	-- dependent transparency sliders (interval 0.01)
 	local th_dep = VisSec:dependency_box()
 	th_dep:setup_dependencies({ { th_toggle, true } })
-	th_dep:slider({ name = "FTrs", flag = "th_ftrs", min = 0, max = 1, default = 0.5, interval = 0.01, callback = function()
+	th_dep:slider({ name = "Fill Transparency", flag = "th_ftrs", min = 0, max = 1, default = 0.5, interval = 0.01, callback = function()
         refresh_hl_from_ui()
     end })
-    th_dep:slider({ name = "OTrs", flag = "th_otrs", min = 0, max = 1, default = 0.5, interval = 0.01, callback = function()
+    th_dep:slider({ name = "Outline Transparency", flag = "th_otrs", min = 0, max = 1, default = 0.5, interval = 0.01, callback = function()
         refresh_hl_from_ui()
     end })
-    th_dep:slider({ name = "OccFTrs", flag = "th_occ_ftrs", min = 0, max = 1, default = 0.3, interval = 0.01, callback = function()
+    th_dep:slider({ name = "OccludedFill Transparency", flag = "th_occ_ftrs", min = 0, max = 1, default = 0.3, interval = 0.01, callback = function()
         refresh_hl_from_ui()
     end })
-    th_dep:slider({ name = "OccOTrs", flag = "th_occ_otrs", min = 0, max = 1, default = 0.7, interval = 0.01, callback = function()
+    th_dep:slider({ name = "OccludedOutline Transparency", flag = "th_occ_otrs", min = 0, max = 1, default = 0.7, interval = 0.01, callback = function()
         refresh_hl_from_ui()
     end })
 
@@ -849,7 +1064,7 @@ do
 
         -- ui элементы
         local chams_toggle = VisSec:toggle({
-            name = "Chams",
+            name = "Target Chams",
             flag = "target_chams",
             default = false,
             callback = function(state)
@@ -1114,7 +1329,7 @@ do
 
         -- UI
         local hat_toggle = VisSec:toggle({
-            name = "ChinaHat",
+            name = "Target ChinaHat",
             flag = "china_hat",
             default = false,
             callback = function(state)
@@ -1127,10 +1342,10 @@ do
             end
         })
 
-        hat_toggle:colorpicker({ name = "C1", flag = "hat_c1", default = hat.c1, callback = function(c) hat.c1 = c end })
-        hat_toggle:colorpicker({ name = "C2", flag = "hat_c2", default = hat.c2, callback = function(c) hat.c2 = c end })
-        hat_toggle:colorpicker({ name = "C3", flag = "hat_c3", default = hat.c3, callback = function(c) hat.c3 = c end })
-        hat_toggle:colorpicker({ name = "C4", flag = "hat_c4", default = hat.c4, callback = function(c) hat.c4 = c end })
+        hat_toggle:colorpicker({ name = "Color 1", flag = "hat_c1", default = hat.c1, callback = function(c) hat.c1 = c end })
+        hat_toggle:colorpicker({ name = "Color 2", flag = "hat_c2", default = hat.c2, callback = function(c) hat.c2 = c end })
+        hat_toggle:colorpicker({ name = "Color 3", flag = "hat_c3", default = hat.c3, callback = function(c) hat.c3 = c end })
+        hat_toggle:colorpicker({ name = "Color 4", flag = "hat_c4", default = hat.c4, callback = function(c) hat.c4 = c end })
 
         local hat_dep = VisSec:dependency_box()
         hat_dep:setup_dependencies({ { hat_toggle, true } })
@@ -1326,7 +1541,7 @@ do
 
         -- UI
         local tesp_toggle = VisSec:toggle({
-            name = "TargetEsp",
+            name = "Target Esp",
             flag = "target_esp",
             default = false,
             callback = function(state)
@@ -1535,7 +1750,7 @@ do
         
         -- UI elements
         local tt_toggle = VisSec:toggle({
-            name = "TargetTracer",
+            name = "Target Tracer",
             flag = "target_tracer",
             default = false,
             callback = function(state)
@@ -1550,7 +1765,7 @@ do
         
         -- colorpickers attached to toggle (CustomUI style)
         tt_toggle:colorpicker({
-            name = "Out",
+            name = "Outline",
             flag = "tt_out",
             default = Color3.fromRGB(0, 0, 0),
             callback = function(color)
@@ -2257,7 +2472,7 @@ do
         end
 
         -- UI: hitsound
-        local hs_toggle = OnDamage:toggle({ name = "Hitsounds", flag = "hitsound_enabled", default = false })
+        local hs_toggle = OnDamage:toggle({ name = "Sounds", flag = "hitsound_enabled", default = false })
         local hs_dep = OnDamage:dependency_box()
         hs_dep:setup_dependencies({ { hs_toggle, true } })
         local hs_dropdown = hs_dep:dropdown({ name = "Sound", flag = "hs_file", items = get_sound_files() })
@@ -2491,7 +2706,7 @@ do
         end
 
         -- UI: HitChams
-        local hitchams_toggle = OnDamage:toggle({ name = "HitChams", flag = "hitchams_enabled", default = false })
+        local hitchams_toggle = OnDamage:toggle({ name = "Chams", flag = "hitchams_enabled", default = false })
         hitchams_toggle:colorpicker({ name = "Color", flag = "hitchams_color", default = Color3.fromRGB(255, 0, 0) })
         
         local hitchams_dep = OnDamage:dependency_box()
@@ -2750,7 +2965,7 @@ do
         _G.HitEffect = HitEffect
         
         -- UI: HitEffects
-        local hiteffect_toggle = OnDamage:toggle({ name = "HitEffects", flag = "hiteffect_enabled", default = false })
+        local hiteffect_toggle = OnDamage:toggle({ name = "Effects", flag = "hiteffect_enabled", default = false })
         -- пикер привязан к тогглу (всегда рядом), без зависимости
         hiteffect_toggle:colorpicker({ name = "Color", flag = "hiteffects_color", default = Color3.fromRGB(255, 255, 255) })
 
@@ -2880,7 +3095,7 @@ do
     local pred_dep = PredSec:dependency_box()
     pred_dep:setup_dependencies({ { pred_toggle, true } })
     local mode_dd = pred_dep:dropdown({
-        name = "Mode",
+        name = "Prediction Mode",
         flag = "pred_mode",
         items = { "Sets", "Auto" },
         default = "Auto",
@@ -2916,7 +3131,7 @@ do
     local res_dep = ResSec:dependency_box()
     res_dep:setup_dependencies({ { res_toggle, true } })
     res_dep:dropdown({
-        name = "Mode",
+        name = "Resolver Mode",
         flag = "resolver_mode",
         items = { "Velocity", "Recalculate", "MoveDirection", "LookVector", "CalculateCFrame" },
         default = "Velocity",
@@ -3778,8 +3993,442 @@ for index, value in next, themes.preset do
 	end)
 end
 
+-- misc system start
+do
+	local misc_col = Misc:column()
+	local DesyncSec = misc_col:section({ name = "Desync" })
+	
+	-- auto armor system
+	local auto_armor_state = {
+		enabled = false,
+		percent_to_buy = 50,
+		loop_conn = nil,
+		stopped = false,
+		busy = false, -- активная покупка брони
+	}
+
+	-- общий приоритетный статус для систем десинка
+	local desync_priority_state = {
+		autostomp_active = false,
+	}
+	
+	-- utility functions
+	local function get_armor_value()
+		local char = lp.Character
+		if not char then return nil end
+		local be = char:FindFirstChild("BodyEffects")
+		local armor = be and be:FindFirstChild("Armor")
+		return armor and armor.Value or nil
+	end
+	
+	local function get_cash()
+		local df = lp:FindFirstChild("DataFolder")
+		local cur = df and df:FindFirstChild("Currency")
+		return cur and cur.Value or 0
+	end
+	
+	local function get_shop()
+		local shop = workspace:FindFirstChild("Ignored")
+		shop = shop and shop:FindFirstChild("Shop")
+		if not shop then return nil end
+		local items = shop:GetChildren()
+		local armor_item = items[16]
+		if not armor_item then return nil end
+		local head = armor_item:FindFirstChild("Head")
+		local cd = armor_item:FindFirstChildOfClass("ClickDetector")
+		return armor_item, head, cd
+	end
+	
+	-- main auto armor loop
+	local function start_auto_armor()
+		if auto_armor_state.loop_conn then return end
+		
+		auto_armor_state.loop_conn = vars.task.spawn(function()
+			while auto_armor_state.enabled do
+				vars.task.wait(0.2)
+				
+				if not auto_armor_state.stopped then
+					local armor_val = get_armor_value()
+					if armor_val then
+						local _, head, clickdet = get_shop()
+						if head and clickdet then
+							if armor_val <= auto_armor_state.percent_to_buy and get_cash() >= 1000 then
+								-- move desync to shop
+								if _G.DesyncLibrary then
+									auto_armor_state.busy = true
+									_G.DesyncLibrary.movedesyncto(head.CFrame)
+									
+									-- click burst over several frames
+									for i = 1, 30 do
+										if auto_armor_state.stopped or not auto_armor_state.enabled then break end
+										if get_armor_value() and get_armor_value() >= 100 then break end
+										if get_cash() < 1000 then break end
+										vars.rs.RenderStepped:Wait()
+										pcall(fireclickdetector, clickdet)
+									end
+									
+									-- resync back to player
+									pcall(function()
+										_G.DesyncLibrary.SynchronizeSyncWithPlayer()
+									end)
+									auto_armor_state.busy = false
+								end
+							end
+						end
+					end
+				end
+			end
+		end)
+	end
+	
+	local function stop_auto_armor()
+		if auto_armor_state.loop_conn then
+			pcall(function() 
+				vars.task.cancel(auto_armor_state.loop_conn)
+			end)
+			auto_armor_state.loop_conn = nil
+		end
+
+		auto_armor_state.busy = false
+		
+		-- resync back to player when stopping auto armor
+		if _G.DesyncLibrary then
+			pcall(function()
+				_G.DesyncLibrary.SynchronizeSyncWithPlayer()
+			end)
+		end
+	end
+	
+	-- ui elements
+	local auto_armor_toggle = DesyncSec:toggle({
+		name = "Auto Armor",
+		flag = "auto_armor_enabled",
+		default = false,
+		callback = function(state)
+			auto_armor_state.enabled = state
+			if state then
+				start_auto_armor()
+			else
+				stop_auto_armor()
+			end
+			-- сброс состояния AutoStomp при изменении Auto Armor
+			if autostomp_state and autostomp_state.enabled then
+				autostomp_state.last_sync = 0 -- сброс таймера синхронизации
+				autostomp_state.last_stomp = 0 -- сброс таймера стомпа
+			end
+			-- при выключении Auto Armor снимаем блокировку
+			auto_armor_state.busy = state and auto_armor_state.busy or false
+		end
+	})
+	
+	-- dependency box for slider
+	local armor_dep = DesyncSec:dependency_box()
+	armor_dep:setup_dependencies({ { auto_armor_toggle, true } })
+	
+	armor_dep:slider({
+		name = "PercentToBuy",
+		flag = "armor_percent_to_buy",
+		min = 1,
+		max = 99,
+		default = 50,
+		callback = function(value)
+			auto_armor_state.percent_to_buy = value
+		end
+	})
+	
+	-- autostomp system start
+	do
+		local autostomp_state = {
+			enabled = false,
+			loop_conn = nil,
+			hb_conn = nil,
+			stomp_rate = 10, -- раз в секунду
+			last_stomp = 0,
+			was_active = false,
+			tu_registered = false,
+			-- noclip state
+			noclip_char = nil,
+			noclip_parts = {}, -- [BasePart] = original CanCollide
+			y_offset = 0,
+			-- периодическая синхронизация
+			last_sync = 0,
+			sync_interval = 3, -- секунды между синхронизациями
+		}
+		
+		-- проверка KO статуса игрока
+		local function IsPlayerKO(player)
+			return player and player.Character and player.Character:FindFirstChild("BodyEffects") and 
+				   player.Character.BodyEffects:FindFirstChild("K.O") and player.Character.BodyEffects["K.O"].Value
+		end
+		
+		-- получение позиции торса цели
+		local function get_target_torso_position(player)
+			if not player or not player.Character then return nil end
+			local char = player.Character
+			local upper_torso = char:FindFirstChild("UpperTorso")
+			local lower_torso = char:FindFirstChild("LowerTorso")
+			local torso = upper_torso or lower_torso
+			return torso and torso.CFrame
+		end
+		
+		-- управление коллизиями цели (noclip)
+		local function restore_target_noclip()
+			if autostomp_state.noclip_char then
+				for part, original in pairs(autostomp_state.noclip_parts) do
+					if part and part.Parent then
+						pcall(function()
+							part.CanCollide = original
+						end)
+					end
+				end
+				autostomp_state.noclip_parts = {}
+				autostomp_state.noclip_char = nil
+			end
+		end
+		local function apply_target_noclip(player)
+			local char = player and player.Character
+			if not char then return end
+			if autostomp_state.noclip_char == char then return end
+			-- восстановим с предыдущего персонажа, если был
+			restore_target_noclip()
+			autostomp_state.noclip_char = char
+			for _, d in ipairs(char:GetDescendants()) do
+				if d:IsA("BasePart") then
+					autostomp_state.noclip_parts[d] = d.CanCollide
+					pcall(function()
+						d.CanCollide = false
+					end)
+				end
+			end
+		end
+		
+		-- основной цикл автостомпа (Heartbeat)
+		local function start_autostomp()
+			if autostomp_state.hb_conn then return end
+			autostomp_state.last_stomp = 0
+			autostomp_state.last_sync = 0
+			autostomp_state.was_active = false
+			-- подписка на смену цели (однократно)
+			if not autostomp_state.tu_registered and utility and utility.OnTargetUpdate then
+				autostomp_state.tu_registered = true
+				utility:OnTargetUpdate(function(info)
+					if not autostomp_state.enabled then return end
+					-- при потере цели синхронизируем и восстанавливаем коллизии
+					if not info and autostomp_state.was_active then
+						restore_target_noclip()
+						pcall(function()
+							if _G.DesyncLibrary and _G.DesyncLibrary.SynchronizeSyncWithPlayer then
+								_G.DesyncLibrary.SynchronizeSyncWithPlayer()
+							end
+						end)
+						autostomp_state.was_active = false
+					end
+					-- сброс таймера для быстрого следующего стомпа
+					autostomp_state.last_stomp = 0
+				end)
+			end
+
+			autostomp_state.hb_conn = vars.rs.Heartbeat:Connect(function()
+				-- условия
+				local target = targeting_state and targeting_state.current
+				-- приоритет: блокировать только во время реальной покупки брони
+				local armor_blocking = auto_armor_state.busy == true
+				local active = autostomp_state.enabled and not armor_blocking and target and IsPlayerKO(target)
+				-- сообщаем статус активности для приоритета Voiding
+				desync_priority_state.autostomp_active = active and true or false
+				
+				-- дополнительная проверка: если Auto Armor выключился, сбрасываем состояние
+				if not armor_blocking and autostomp_state.was_active and not active then
+					autostomp_state.last_sync = 0
+					autostomp_state.last_stomp = 0
+				end
+				if active then
+					-- поддерживаем/применяем noclip для актуальной цели каждый кадр
+					apply_target_noclip(target)
+					autostomp_state.was_active = true
+					
+					-- периодическая синхронизация с игроком для снижения уязвимости
+					local now = os.clock()
+					if (now - autostomp_state.last_sync) >= autostomp_state.sync_interval then
+						autostomp_state.last_sync = now
+						pcall(function()
+							if _G.DesyncLibrary and _G.DesyncLibrary.SynchronizeSyncWithPlayer then
+								_G.DesyncLibrary.SynchronizeSyncWithPlayer()
+							end
+						end)
+						-- vars.task.wait(0.1) -- убираем wait из Heartbeat цикла
+					end
+					
+					-- постоянное обновление позиции десинка к актуальной части
+					local torso_cf = get_target_torso_position(target)
+					if torso_cf then
+						pcall(function()
+							if _G.DesyncLibrary and _G.DesyncLibrary.movedesyncto then
+								_G.DesyncLibrary.movedesyncto(torso_cf.X, torso_cf.Y + autostomp_state.y_offset, torso_cf.Z)
+							end
+						end)
+					end
+					-- ограничение частоты события Stomp
+					local now = os.clock()
+					local interval = 1 / math.max(1, autostomp_state.stomp_rate)
+					if (now - autostomp_state.last_stomp) >= interval then
+						autostomp_state.last_stomp = now
+						pcall(function()
+							local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
+							if mainEvent then
+								mainEvent:FireServer("Stomp")
+							end
+						end)
+					end
+				else
+					-- выход из активного состояния
+					if autostomp_state.was_active then
+						restore_target_noclip()
+						pcall(function()
+							if _G.DesyncLibrary and _G.DesyncLibrary.SynchronizeSyncWithPlayer then
+								_G.DesyncLibrary.SynchronizeSyncWithPlayer()
+							end
+						end)
+						autostomp_state.was_active = false
+					end
+				end
+			end)
+		end
+		
+		-- остановка автостомпа
+		local function stop_autostomp()
+			-- legacy остановка таска
+			if autostomp_state.loop_conn then
+				vars.task.cancel(autostomp_state.loop_conn)
+				autostomp_state.loop_conn = nil
+			end
+			-- отключаем Heartbeat
+			if autostomp_state.hb_conn then
+				autostomp_state.hb_conn:Disconnect()
+				autostomp_state.hb_conn = nil
+			end
+			-- восстановим коллизии и синхронизируемся
+			restore_target_noclip()
+			pcall(function()
+				if _G.DesyncLibrary and _G.DesyncLibrary.SynchronizeSyncWithPlayer then
+					_G.DesyncLibrary.SynchronizeSyncWithPlayer()
+				end
+			end)
+			autostomp_state.was_active = false
+			desync_priority_state.autostomp_active = false
+		end
+		
+		-- UI элемент
+		local autostomp_toggle = DesyncSec:toggle({
+			name = "AutoStomp",
+			flag = "autostomp_enabled",
+			default = false,
+			callback = function(enabled)
+				autostomp_state.enabled = enabled
+				if enabled then
+					start_autostomp()
+				else
+					stop_autostomp()
+				end
+			end
+		})
+
+		-- зависимые элементы для AutoStomp
+		local as_dep = DesyncSec:dependency_box()
+		as_dep:setup_dependencies({ { autostomp_toggle, true } })
+		as_dep:slider({
+			name = "YOff",
+			flag = "autostomp_y_offset",
+			min = -1,
+			max = 3,
+			default = 0,
+			interval = 0.01,
+			callback = function(v)
+				autostomp_state.y_offset = v
+			end
+		})
+	end
+	-- autostomp system end
+
+	-- voiding system start
+	do
+		local voiding_state = {
+			enabled = false,
+			hb_conn = nil,
+		}
+
+		local function start_voiding()
+			if voiding_state.hb_conn then return end
+			voiding_state.hb_conn = vars.rs.Heartbeat:Connect(function()
+				-- Приоритеты: 1) AutoArmor busy, 2) AutoStomp active, 3) Voiding
+				local blocked = (auto_armor_state.busy == true) or (desync_priority_state.autostomp_active == true)
+				if voiding_state.enabled and not blocked then
+					pcall(function()
+						if _G.DesyncLibrary and _G.DesyncLibrary.movedesyncto then
+							_G.DesyncLibrary.movedesyncto(-18e18, -18e18, -18e18)
+						end
+					end)
+				end
+			end)
+		end
+
+		local function stop_voiding()
+			if voiding_state.hb_conn then
+				voiding_state.hb_conn:Disconnect()
+				voiding_state.hb_conn = nil
+			end
+			-- при выключении возвращаем десинк к игроку
+			local blocked = (auto_armor_state.busy == true) or (desync_priority_state.autostomp_active == true)
+			if not blocked then
+				pcall(function()
+					local lib = _G.DesyncLibrary
+					if lib and lib.SynchronizeSyncWithPlayer then
+						lib.SynchronizeSyncWithPlayer()
+						return
+					end
+					-- fallback: вернуть десинк в позицию HRP локального игрока
+					if lib and lib.movedesyncto then
+						local lp = game and game.Players and game.Players.LocalPlayer
+						local char = lp and lp.Character
+						local hrp = char and char:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							local p = hrp.Position
+							lib.movedesyncto(p.X, p.Y, p.Z)
+						end
+					end
+				end)
+			end
+		end
+
+		-- UI элемент
+		local voiding_toggle = DesyncSec:toggle({
+			name = "Voiding",
+			flag = "voiding_enabled",
+			default = false,
+			callback = function(state)
+				voiding_state.enabled = state
+				if state then
+					start_voiding()
+				else
+					stop_voiding()
+				end
+			end
+		})
+
+	end
+	-- voiding system end
+	end
+	-- misc system end
+
+-- применяем тему после создания всех элементов
+for index, value in next, themes.preset do
+    pcall(function()
+        library:update_theme(index, value)
+    end)
+end
+
 -- показываем уведомление о загрузке скрипта
 library:notification({
-    text = "hello",
-    time = 5
+    text = "hello, client is loaded, onyx hub = zalupa ebanaya",
+    time = 10
 })
