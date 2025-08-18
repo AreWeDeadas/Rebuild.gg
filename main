@@ -984,6 +984,20 @@ do
 		name = "Enabled",
 		flag = "Targeting_Enabled",
 		default = false,
+		callback = function(state)
+			if not state then
+				if flags and flags["Debug"] then print("[Targeting] Disabled -> clearing target") end
+				-- clear visuals and state
+				clear_highlight()
+				targeting_state.current = nil
+				utility:ClearTargetInfo()
+				utility:ClearCurrentTarget()
+				-- update keybind visibility if available
+				if targeting_keybind and targeting_keybind.update_visibility then
+					targeting_keybind.update_visibility()
+				end
+			end
+		end,
 	})
 	
 	targeting_keybind = targeting_toggle:keybind({
@@ -4097,10 +4111,19 @@ do
 	-- auto armor system
 	local auto_armor_state = {
 		enabled = false,
-		percent_to_buy = 50,
+		value_to_buy = 100,
 		loop_conn = nil,
+		armor_conn = nil, -- Changed connection for instant reaction
+		char_conn = nil,
 		stopped = false,
-		busy = false, -- активная покупка брони
+		busy = false,
+		last_click_t = 0,
+		click_interval = 0.02,
+		post_wait_frames = 2,
+		last_attempt = 0,
+		attempt_cooldown = 0.1, -- seconds between attempts to avoid spam
+		shop_head = nil,
+		shop_clickdet = nil,
 	}
 
 	-- общий приоритетный статус для систем десинка
@@ -4153,51 +4176,111 @@ do
 		end
 		return armor_item, head, cd
 	end
+
+	-- cache shop parts for faster reaction
+	local function ensure_shop_cached()
+		if auto_armor_state.shop_head and auto_armor_state.shop_clickdet then
+			return auto_armor_state.shop_head, auto_armor_state.shop_clickdet
+		end
+		local _, head, clickdet = get_shop()
+		auto_armor_state.shop_head, auto_armor_state.shop_clickdet = head, clickdet
+		return head, clickdet
+	end
+
+	-- single entry point to attempt buying armor fast
+	local function attempt_buy_armor()
+		if not auto_armor_state.enabled or auto_armor_state.stopped or auto_armor_state.busy then return end
+		local now = tick()
+		if (now - auto_armor_state.last_attempt) < auto_armor_state.attempt_cooldown then return end
+		auto_armor_state.last_attempt = now
+
+		local cur = get_armor_value()
+		if not cur then return end
+		if cur >= 200 or cur > auto_armor_state.value_to_buy then return end
+		if get_cash() < 1000 then return end
+
+		local head, clickdet = ensure_shop_cached()
+		if not (head and clickdet) then return end
+
+		if _G.DesyncLibrary then
+			auto_armor_state.busy = true
+			if flags and flags["Debug"] then print("[AutoArmor] moving to shop (instant)") end
+			_G.DesyncLibrary.movedesyncto(head.CFrame)
+			pcall(function()
+				vars.run.Heartbeat:Wait()
+				vars.run.RenderStepped:Wait()
+			end)
+
+			for i = 1, 30 do
+				if auto_armor_state.stopped or not auto_armor_state.enabled then break end
+				local v = get_armor_value()
+				if v and (v >= 200 or v >= auto_armor_state.value_to_buy) then break end
+				if get_cash() < 1000 then break end
+				vars.run.RenderStepped:Wait()
+				pcall(fireclickdetector, clickdet)
+				if auto_armor_state.click_interval and auto_armor_state.click_interval > 0 then
+					vars.run.Heartbeat:Wait()
+					_G.DesyncLibrary.SynchronizeSyncWithPlayer()
+				end
+			end
+			if flags and flags["Debug"] then print("[AutoArmor] resynced after purchase") end
+			auto_armor_state.busy = false
+		end
+	end
+
+	local function connect_armor_listener()
+		if auto_armor_state.armor_conn then return end
+		local char = lp.Character
+		if not char then return end
+		local be = char:FindFirstChild("BodyEffects")
+		local armor = be and be:FindFirstChild("Armor")
+		if not armor then return end
+		auto_armor_state.armor_conn = armor.Changed:Connect(function()
+			-- моментальная реакция на падение брони
+			attempt_buy_armor()
+		end)
+		-- также пробуем один раз при подключении
+		attempt_buy_armor()
+		-- обновление коннекта при респауне можно добавить в CharacterAdded хук, если он есть в vars/utility
+	end
+
+	local function connect_character_listener()
+		if auto_armor_state.char_conn then return end
+		auto_armor_state.char_conn = lp.CharacterAdded:Connect(function()
+			-- подождем кадр, чтобы BodyEffects/Armor появились
+			pcall(function()
+				vars.run.Heartbeat:Wait()
+				vars.run.RenderStepped:Wait()
+			end)
+			-- сбросим предыдущую подписку и кеш магазина
+			if auto_armor_state.armor_conn then
+				auto_armor_state.armor_conn:Disconnect()
+				auto_armor_state.armor_conn = nil
+			end
+			auto_armor_state.shop_head, auto_armor_state.shop_clickdet = nil, nil
+			-- переподключим мгновенную реакцию
+			if auto_armor_state.enabled then
+				ensure_shop_cached()
+				connect_armor_listener()
+				attempt_buy_armor()
+			end
+		end)
+	end
 	
 	-- main auto armor loop
 	local function start_auto_armor()
 		if auto_armor_state.loop_conn then return end
+		-- cache shop once and listen to armor changes for instant trigger
+		ensure_shop_cached()
+		connect_armor_listener()
+		connect_character_listener()
 		
 		auto_armor_state.loop_conn = vars.task.spawn(function()
 			while auto_armor_state.enabled do
-				vars.task.wait(0.2)
+				vars.task.wait(0.05) -- faster poll as a fallback; primary is event-driven
 				
 				if not auto_armor_state.stopped then
-					local armor_val = get_armor_value()
-					if armor_val then
-						local _, head, clickdet = get_shop()
-						if head and clickdet then
-							if armor_val <= auto_armor_state.percent_to_buy and get_cash() >= 1000 then
-							-- move desync to shop
-							if _G.DesyncLibrary then
-								auto_armor_state.busy = true
-								if flags and flags["Debug"] then print("[AutoArmor] moving to shop") end
-								_G.DesyncLibrary.movedesyncto(head.CFrame)
-								-- дождаться цикла десинка, чтобы позиция применялась перед кликами
-								pcall(function()
-									vars.run.Heartbeat:Wait()
-									vars.run.RenderStepped:Wait()
-								end)
-								
-								-- click burst over several frames
-								for i = 1, 30 do
-									if auto_armor_state.stopped or not auto_armor_state.enabled then break end
-									if get_armor_value() and get_armor_value() >= 100 then break end
-									if get_cash() < 1000 then break end
-									vars.run.RenderStepped:Wait()
-									pcall(fireclickdetector, clickdet)
-								end
-								
-								-- resync back to player
-								pcall(function()
-									_G.DesyncLibrary.SynchronizeSyncWithPlayer()
-								end)
-								if flags and flags["Debug"] then print("[AutoArmor] resynced after purchase") end
-								auto_armor_state.busy = false
-							end
-						end
-						end
-					end
+					attempt_buy_armor()
 				end
 			end
 		end)
@@ -4210,8 +4293,17 @@ do
 			end)
 			auto_armor_state.loop_conn = nil
 		end
+		if auto_armor_state.armor_conn then
+			auto_armor_state.armor_conn:Disconnect()
+			auto_armor_state.armor_conn = nil
+		end
+		if auto_armor_state.char_conn then
+			auto_armor_state.char_conn:Disconnect()
+			auto_armor_state.char_conn = nil
+		end
 
 		auto_armor_state.busy = false
+		auto_armor_state.shop_head, auto_armor_state.shop_clickdet = nil, nil
 		
 		-- resync back to player when stopping auto armor
 		if _G.DesyncLibrary then
@@ -4248,15 +4340,18 @@ do
 	armor_dep:setup_dependencies({ { auto_armor_toggle, true } })
 	
 	armor_dep:slider({
-		name = "PercentToBuy",
+		name = "BuyAt",
 		flag = "armor_percent_to_buy",
 		min = 1,
-		max = 99,
-		default = 50,
+		max = 199,
+		default = 100,
 		callback = function(value)
-			auto_armor_state.percent_to_buy = value
+			auto_armor_state.value_to_buy = value
 		end
 	})
+
+	-- инициализация значения из сохраненного флага (обратная совместимость)
+	auto_armor_state.value_to_buy = (flags and typeof(flags["armor_percent_to_buy"]) == "number") and flags["armor_percent_to_buy"] or auto_armor_state.value_to_buy
 	
 	-- autostomp system start
 	do
@@ -5109,11 +5204,248 @@ do
 				if library and library.update_dependencies then library:update_dependencies() end
 				stop_flyhack()
 			end)
-		end
--- flyhack system end
+  		end
+  		-- flyhack system end
+ 
+		-- spider system start
+		do
+			-- состояние и сервисы
+			local ws = (vars and vars.workspace) or workspace
+			local run = (vars and vars.run) or game:GetService("RunService")
+			local uis = (vars and vars.uis) or game:GetService("UserInputService")
+			local cam = (vars and (vars.camera or vars.cam)) or (ws and ws.CurrentCamera)
+			local rp = ((vars and vars.RaycastParams and vars.RaycastParams.new) and vars.RaycastParams.new()) or RaycastParams.new()
+			rp.RespectCanCollide = true
 
--- gravity system start
-do
+			local spider_state = {
+				enabled = false,
+				connection = nil,
+				_ib = nil,
+				_ie = nil,
+				_died_conn = nil,
+				_char_added = nil,
+				_char_removing = nil,
+				shift_down = false,
+				active = false,
+				mode = "Velocity", -- Velocity | Impulse | CFrame | Climbing
+				value = 20,
+				state_enabled = true,
+				truss = nil,
+				rp = rp,
+			}
+
+			local function ensure_truss(parent_when_on)
+				if not spider_state.truss then
+					local t = Instance.new("TrussPart")
+					t.Size = Vector3.new(2, 2, 2)
+					t.Transparency = 1
+					t.Anchored = true
+					spider_state.truss = t
+				end
+				spider_state.truss.Parent = (spider_state.enabled and parent_when_on) or nil
+			end
+
+			local function destroy_truss()
+				local t = spider_state.truss
+				if t then pcall(function() t:Destroy() end) end
+				spider_state.truss = nil
+			end
+
+			local function start_spider()
+				if spider_state.connection and spider_state.connection.Connected then return end
+				local signal = (run and (run.PreSimulation or run.Stepped or run.Heartbeat))
+				spider_state.connection = signal:Connect(function(dt)
+					if not spider_state.enabled then return end
+					local char = lp and lp.Character
+					local hum = char and char:FindFirstChildOfClass("Humanoid")
+					local root = char and char:FindFirstChild("HumanoidRootPart")
+					if not (hum and root) then return end
+
+					local chars = { cam, char, spider_state.truss }
+					if spider_state.rp then
+						spider_state.rp.FilterDescendantsInstances = chars
+						pcall(function() spider_state.rp.CollisionGroup = root.CollisionGroup end)
+					end
+
+					local shift_down = (uis and (uis:IsKeyDown(Enum.KeyCode.LeftShift) or uis:IsKeyDown(Enum.KeyCode.RightShift))) or spider_state.shift_down
+					if shift_down then
+						spider_state.active = false
+						return
+					end
+
+					if spider_state.mode ~= "Climbing" then
+						local moveDir = hum.MoveDirection
+						if moveDir.Magnitude < 0.05 then
+							spider_state.active = false
+							return
+						end
+						local origin = root.Position - Vector3.new(0, (hum.HipHeight or 2) - 0.5, 0)
+						local direction = moveDir.Unit * 1 -- фиксированная дистанция 1
+						local ray = ws:Raycast(origin, direction, spider_state.rp)
+						if spider_state.active and not ray then
+							pcall(function()
+								local v = root.AssemblyLinearVelocity
+								root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
+							end)
+						end
+						spider_state.active = ray ~= nil
+						if spider_state.active and ray.Normal.Y == 0 then
+							if spider_state.state_enabled then
+								pcall(function() hum:ChangeState(Enum.HumanoidStateType.Climbing) end)
+							end
+							pcall(function()
+								local vel = root.AssemblyLinearVelocity
+								root.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+							end)
+							if spider_state.mode == "CFrame" then
+								root.CFrame = root.CFrame * CFrame.new(0, spider_state.value * dt, 0)
+							elseif spider_state.mode == "Impulse" then
+								root:ApplyImpulse(Vector3.new(0, spider_state.value, 0) * root.AssemblyMass)
+							else -- Velocity
+								pcall(function()
+									local vel = root.AssemblyLinearVelocity
+									root.AssemblyLinearVelocity = vel + Vector3.new(0, spider_state.value, 0)
+								end)
+							end
+						end
+					else
+						local origin = root.Position - Vector3.new(0, (hum.HipHeight or 2) - 0.5, 0)
+						local direction = root.CFrame.LookVector * 1 -- фиксированная дистанция 1
+						local ray = ws:Raycast(origin, direction, spider_state.rp)
+						if ray and not shift_down then
+							ensure_truss(cam)
+							local pos = (ray.Position - ray.Normal * 0.9)
+							spider_state.truss.Position = pos or Vector3.new(0, 0, 0)
+						else
+							if spider_state.truss then
+								spider_state.truss.Position = Vector3.new(0, 0, 0)
+							end
+						end
+					end
+				end)
+
+				-- Shift override
+				if not (spider_state._ib and spider_state._ib.Connected) then
+					spider_state._ib = uis.InputBegan:Connect(function(input, gp)
+						if gp then return end
+						if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+							spider_state.shift_down = true
+						end
+					end)
+				end
+				if not (spider_state._ie and spider_state._ie.Connected) then
+					spider_state._ie = uis.InputEnded:Connect(function(input)
+						if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+							spider_state.shift_down = false
+						end
+					end)
+				end
+
+				if spider_state.mode == "Climbing" then ensure_truss(cam) else destroy_truss() end
+			end
+
+			local function stop_spider()
+				if spider_state.connection then
+					pcall(function()
+						if spider_state.connection.Connected then spider_state.connection:Disconnect() end
+					end)
+					spider_state.connection = nil
+				end
+				if spider_state._ib then pcall(function() spider_state._ib:Disconnect() end); spider_state._ib = nil end
+				if spider_state._ie then pcall(function() spider_state._ie:Disconnect() end); spider_state._ie = nil end
+				if spider_state._died_conn then pcall(function() spider_state._died_conn:Disconnect() end); spider_state._died_conn = nil end
+				spider_state.shift_down = false
+				spider_state.active = false
+				destroy_truss()
+			end
+
+			-- UI: Toggle + Dep
+			local spider_toggle = MovementSec:toggle({
+				name = "Spider",
+				flag = "Spider_Toggle",
+				default = false,
+				callback = function(v)
+					spider_state.enabled = v
+					if v then start_spider() else stop_spider() end
+					if library and library.update_dependencies then library:update_dependencies() end
+				end
+			})
+
+			local spider_dep = MovementSec:dependency_box()
+			spider_dep:setup_dependencies({ { spider_toggle, true } })
+
+			spider_dep:dropdown({
+				name = "Mode",
+				flag = "Spider_Mode",
+				items = { "Velocity", "Impulse", "CFrame", "Climbing" },
+				default = spider_state.mode,
+				callback = function(val)
+					spider_state.mode = val
+					local show = (val ~= "Climbing")
+					if flags then flags["Spider_ShowControls"] = show end
+					if spider_state.enabled then
+						if val == "Climbing" then ensure_truss(cam) else destroy_truss() end
+					end
+					if library and library.update_dependencies then library:update_dependencies() end
+				end
+			})
+
+			-- Блок контролов, видим только при Mode ~= Part
+			if flags and flags["Spider_ShowControls"] == nil then flags["Spider_ShowControls"] = true end
+			local ctrl_dep = MovementSec:dependency_box()
+			ctrl_dep:setup_dependencies({ { spider_toggle, true }, { "Spider_ShowControls", true } })
+
+			ctrl_dep:slider({
+				name = "Val",
+				flag = "Spider_Val",
+				min = 1,
+				max = 100,
+				default = spider_state.value,
+				decimals = 0,
+				callback = function(val)
+					spider_state.value = val
+				end
+			})
+
+			ctrl_dep:toggle({
+				name = "State",
+				flag = "Spider_State",
+				default = spider_state.state_enabled,
+				callback = function(v)
+					spider_state.state_enabled = v
+				end
+			})
+
+			-- перепривязка к персонажу
+			local function bind_spider_character(char)
+				if run and run.Heartbeat then run.Heartbeat:Wait() end
+				stop_spider()
+				if spider_state.enabled then start_spider() end
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum then
+					if spider_state._died_conn then pcall(function() spider_state._died_conn:Disconnect() end) end
+					spider_state._died_conn = hum.Died:Connect(function()
+						stop_spider()
+					end)
+				end
+			end
+
+			if lp then
+				if lp.Character then bind_spider_character(lp.Character) end
+				if spider_state._char_added then pcall(function() spider_state._char_added:Disconnect() end) end
+				spider_state._char_added = lp.CharacterAdded:Connect(function(char)
+					bind_spider_character(char)
+				end)
+				if spider_state._char_removing then pcall(function() spider_state._char_removing:Disconnect() end) end
+				spider_state._char_removing = lp.CharacterRemoving:Connect(function()
+					stop_spider()
+				end)
+			end
+		end
+		-- spider system end
+
+		-- gravity system start
+	do
 	-- состояние и функции Gravity
 	local ws = (vars and vars.workspace) or workspace
 	local run = (vars and vars.run) or game:GetService("RunService")
@@ -5291,6 +5623,99 @@ end
 			end
 		})
 	end
+	-- highjump system start
+	do
+		local uis = (vars and vars.uis) or game:GetService("UserInputService")
+		local run = (vars and vars.run) or game:GetService("RunService")
+		local ws = (vars and vars.workspace) or workspace
+
+		local highjump_state = {
+			enabled = false,
+			mode = "Velocity", -- UI only
+			power = 50, -- JumpPower value from textbox
+			connection = nil,
+		}
+
+		local function jump_once()
+			local char = lp and lp.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if not hum then return end
+			local state = hum:GetState()
+			if state ~= Enum.HumanoidStateType.Running and state ~= Enum.HumanoidStateType.Landed then return end
+			local jp = tonumber(highjump_state.power) or 50
+			pcall(function()
+				if hum.UseJumpPower ~= false then
+					hum.JumpPower = jp
+				else
+					-- fallback: approximate JumpHeight if power mode is disabled
+					hum.JumpHeight = math.max(1, jp / 7)
+				end
+				-- trigger jump
+				hum:ChangeState(Enum.HumanoidStateType.Jumping)
+			end)
+		end
+
+		local function start_highjump()
+			if highjump_state.connection and highjump_state.connection.Connected then return end
+			highjump_state.connection = run.RenderStepped:Connect(function()
+				if not highjump_state.enabled then return end
+				if uis:GetFocusedTextBox() then return end
+				if uis:IsKeyDown(Enum.KeyCode.Space) then
+					jump_once()
+				end
+			end)
+		end
+
+		local function stop_highjump()
+			if highjump_state.connection then
+				pcall(function()
+					if highjump_state.connection.Connected then highjump_state.connection:Disconnect() end
+				end)
+				highjump_state.connection = nil
+			end
+		end
+
+		-- UI
+		local hj_toggle = MovementSec:toggle({
+			name = "HighJump",
+			flag = "HighJump_Toggle",
+			default = false,
+			callback = function(v)
+				highjump_state.enabled = v
+				if v then start_highjump() else stop_highjump() end
+				if library and library.update_dependencies then library:update_dependencies() end
+			end
+		})
+
+		local hj_dep = MovementSec:dependency_box()
+		hj_dep:setup_dependencies({ { hj_toggle, true } })
+
+		hj_dep:dropdown({
+			name = "Mode",
+			flag = "HighJump_Mode",
+			items = { "Impulse", "Velocity", "CFrame", "Instant" },
+			default = highjump_state.mode,
+			callback = function(val)
+				highjump_state.mode = val
+			end
+		})
+
+		hj_dep:textbox({
+			name = "Pwr",
+			flag = "HighJump_Power",
+			default = tostring(highjump_state.power),
+			callback = function(text)
+				local num = tonumber(text)
+				if not num then return end
+				-- clamp reasonable range
+				if num < 1 then num = 1 end
+				if num > 300 then num = 300 end
+				highjump_state.power = num
+			end
+		})
+	end
+	-- highjump system end
+
 	-- no jump cooldown system start
 	do
 		local nojump_state = {
@@ -5399,11 +5824,109 @@ end
 			end
 		})
 	end
-	-- no jump cooldown system end
+	  -- no jump cooldown system end
 
+  	-- strafe system start
+  	do
+ 		local run = (vars and vars.run) or game:GetService("RunService")
+
+  		local strafe_state = {
+  			enabled = false,
+  			connection = nil,
+			mode = "Velocity", -- CFrame | Velocity 
+			value = 10,
+  		}
+
+		-- sanitize persisted mode: drop unsupported values (e.g., legacy "Impulse")
+		if strafe_state.mode ~= "CFrame" and strafe_state.mode ~= "Velocity" then
+			strafe_state.mode = "Velocity"
+		end
+
+ 		local function start_strafe()
+ 			if strafe_state.connection and strafe_state.connection.Connected then return end
+ 			local signal = (run and (run.PreSimulation or run.Stepped or run.Heartbeat))
+ 			strafe_state.connection = signal:Connect(function(dt)
+ 				if not strafe_state.enabled then return end
+ 				local char = lp and lp.Character
+ 				local hum = char and char:FindFirstChildOfClass("Humanoid")
+ 				local root = char and char:FindFirstChild("HumanoidRootPart")
+ 				if not (hum and root) then return end
+ 				-- только в воздухе
+ 				if hum.FloorMaterial ~= Enum.Material.Air then return end
+ 				-- направл. по XZ
+				local moveDir = hum.MoveDirection
+				if moveDir.Magnitude < 0.05 then return end
+				local dir = Vector3.new(moveDir.X, 0, moveDir.Z)
+				if dir.Magnitude <= 0 then return end
+				dir = dir.Unit
+
+				if strafe_state.mode == "CFrame" then
+					-- добавочное смещение по XZ в кадр (усилен: dt * 10)
+					root.CFrame = root.CFrame + (dir * (strafe_state.value * (dt or 0) * 10))
+				else -- Velocity
+					-- устанавливаем минимум по XZ = WalkSpeed + Strength, сохраняя Y
+					pcall(function()
+						local v = root.AssemblyLinearVelocity
+						local horiz = Vector3.new(v.X, 0, v.Z)
+						local targetMag = math.max(horiz.Magnitude, ((hum and hum.WalkSpeed) or 16) + (strafe_state.value * 3))
+						local nv = dir * targetMag
+						root.AssemblyLinearVelocity = Vector3.new(nv.X, v.Y, nv.Z)
+					end)
+				end
+  			end)
+  		end
+
+ 		local function stop_strafe()
+ 			if strafe_state.connection then
+ 				pcall(function()
+ 					if strafe_state.connection.Connected then strafe_state.connection:Disconnect() end
+ 				end)
+ 				strafe_state.connection = nil
+ 			end
+ 		end
+ 
+ 		-- UI
+ 		local strafe_toggle = MovementSec:toggle({
+ 			name = "Strafe",
+ 			flag = "Strafe_Toggle",
+ 			default = false,
+ 			callback = function(v)
+ 				strafe_state.enabled = v
+ 				if v then start_strafe() else stop_strafe() end
+ 				if library and library.update_dependencies then library:update_dependencies() end
+ 			end
+ 		})
+
+ 		local strafe_dep = MovementSec:dependency_box()
+		strafe_dep:setup_dependencies({ { strafe_toggle, true } })
+
+		strafe_dep:dropdown({
+			name = "Mode",
+			flag = "Strafe_Mode",
+			items = { "CFrame", "Velocity" },
+			default = strafe_state.mode,
+			callback = function(val)
+				strafe_state.mode = val
+			end
+		})
+
+		strafe_dep:slider({
+			name = "Str",
+			flag = "Strafe_Strength",
+			min = 1,
+			max = 20,
+			default = 10,
+			decimals = 0,
+			callback = function(val)
+				strafe_state.value = val
+			end
+		})
+ 	end
+ 	-- strafe system end
+ 
  
   -- movement system end
-end
+ end
  -- misc system end
 end
 
