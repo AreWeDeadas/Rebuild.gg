@@ -31,16 +31,21 @@ local custom_hud = library:custom_hud({
 -- cached services and common objects
 local vars = {
 	ps = game:GetService("Players"),
-	rs = game:GetService("RunService"),
+	run = game:GetService("RunService"),
 	uis = game:GetService("UserInputService"),
 	ts = game:GetService("TweenService"),
 	hs = game:GetService("HttpService"),
 	cam = workspace.CurrentCamera,
+	camera = workspace.CurrentCamera, -- alias for code paths using vars.camera
+	workspace = workspace, -- alias for code paths using vars.workspace
 	math = math,
 	cf = CFrame,
 	v2 = Vector2,
 	v3 = Vector3,
+	Vector3 = Vector3, -- alias for vars.Vector3.new(...)
+	RaycastParams = RaycastParams, -- alias for vars.RaycastParams
 	task = task,
+	tick = tick, -- alias for vars.tick()
 }
 
 -- enable debug logs
@@ -309,7 +314,7 @@ do
 
 	-- start heartbeat watcher once
 	if not utility._dd.conn then
-		utility._dd.conn = vars.rs.Heartbeat:Connect(function()
+		utility._dd.conn = vars.run.Heartbeat:Connect(function()
 			local dd = utility._dd
 			-- используем приоритетно цель, установленную через SetCurrentTarget
 			local current = utility._dd.override_player or (targeting_state and targeting_state.current or nil)
@@ -356,7 +361,7 @@ do
 				if dd.hum_conn then pcall(function() dd.hum_conn:Disconnect() end) dd.hum_conn = nil end
 				if dd.hum then
 					-- wait for humanoid to be ready
-					vars.rs.Heartbeat:Wait()
+					vars.run.Heartbeat:Wait()
 					if flags and flags["Debug"] then
 						print("[DD] humanoid bound for:", current and current.Name)
 					end
@@ -1197,7 +1202,7 @@ do
         -- Walls always on: chams drawn through walls by default
 
         -- подключаем к обновлению
-        table.insert(library.connections, vars.rs.RenderStepped:Connect(function()
+        table.insert(library.connections, vars.run.RenderStepped:Connect(function()
             if chams_state.enabled then
                 update_chams()
             end
@@ -1451,7 +1456,7 @@ do
             callback = function(val) hat.style = val end
         })
 
-        table.insert(library.connections, vars.rs.RenderStepped:Connect(function()
+        table.insert(library.connections, vars.run.RenderStepped:Connect(function()
             if hat.enabled then update_hat() end
         end))
 
@@ -1640,7 +1645,7 @@ do
                 if state then
                     ensure_gui()
                     if not targetesp_state.conn then
-                        targetesp_state.conn = vars.rs.RenderStepped:Connect(update_gui)
+                        targetesp_state.conn = vars.run.RenderStepped:Connect(update_gui)
                         table.insert(library.connections, targetesp_state.conn)
                     end
                 else
@@ -1768,7 +1773,7 @@ do
             end
             
             if not tracer_state.connection then
-                local RS = (vars and vars.rs) or game:GetService("RunService")
+                local RS = (vars and vars.run) or game:GetService("RunService")
                 local UIS = (vars and vars.uis) or game:GetService("UserInputService")
                 local Camera = (workspace and workspace.CurrentCamera) or game:GetService("Workspace").CurrentCamera
                 
@@ -2127,7 +2132,7 @@ do
         
         local function connect_lookat()
             if lookat_conn then return end
-            lookat_conn = vars.rs.RenderStepped:Connect(function()
+            lookat_conn = vars.run.RenderStepped:Connect(function()
                 -- guards
                 local target = targeting_state and targeting_state.current
                 if not (target and utility:ValidateClient(target)) then return end
@@ -2389,7 +2394,7 @@ do
     -- Tweaks: MagicBullets
     do
         -- cache frequently used
-        local RunService = vars.rs
+        local RunService = vars.run
         local Players = vars.ps
         local LocalPlayer = Players.LocalPlayer
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -3152,7 +3157,7 @@ do
         end
         
         -- hook into render loop
-        vars.rs.Stepped:Connect(function()
+        vars.run.Stepped:Connect(function()
             updateTargetHealth()
         end)
     end
@@ -4170,8 +4175,8 @@ do
 								_G.DesyncLibrary.movedesyncto(head.CFrame)
 								-- дождаться цикла десинка, чтобы позиция применялась перед кликами
 								pcall(function()
-									vars.rs.Heartbeat:Wait()
-									vars.rs.RenderStepped:Wait()
+									vars.run.Heartbeat:Wait()
+									vars.run.RenderStepped:Wait()
 								end)
 								
 								-- click burst over several frames
@@ -4179,7 +4184,7 @@ do
 									if auto_armor_state.stopped or not auto_armor_state.enabled then break end
 									if get_armor_value() and get_armor_value() >= 100 then break end
 									if get_cash() < 1000 then break end
-									vars.rs.RenderStepped:Wait()
+									vars.run.RenderStepped:Wait()
 									pcall(fireclickdetector, clickdet)
 								end
 								
@@ -4345,7 +4350,7 @@ do
 				end)
 			end
 
-			autostomp_state.hb_conn = vars.rs.Heartbeat:Connect(function()
+			autostomp_state.hb_conn = vars.run.Heartbeat:Connect(function()
 				-- условия
 				local target = targeting_state and targeting_state.current
 				-- приоритет: блокировать только во время реальной покупки брони
@@ -4486,7 +4491,7 @@ do
 
 		local function start_voiding()
 			if voiding_state.hb_conn then return end
-			voiding_state.hb_conn = vars.rs.Heartbeat:Connect(function()
+			voiding_state.hb_conn = vars.run.Heartbeat:Connect(function()
 				-- Приоритеты: 1) AutoArmor busy, 2) AutoStomp active, 3) Voiding
 				local blocked = (auto_armor_state.busy == true) or (desync_priority_state.autostomp_active == true)
 				if voiding_state.enabled and not blocked then
@@ -4584,6 +4589,530 @@ do
 
 	end
 	-- voiding system end
+	
+	-- movement system start
+	do
+		local movement_col = Misc:column()
+		local MovementSec = movement_col:section({ name = "Movement" })
+		
+		-- SpeedHack система с двумя состояниями
+		local speedhack_state = {
+			enabled = false,  -- toggle state
+			active = false,   -- keybind state
+			method = "Velocity",
+			connection = nil,
+			options = {
+				Value = { Value = 16 },
+				TPTiming = 0,
+				TPFrequency = { Value = 0.1 },
+				WallCheck = { Enabled = false },
+				rayCheck = (vars and vars.RaycastParams and vars.RaycastParams.new()) or RaycastParams.new(),
+
+				PulseLength = { Value = 0.5 },
+				PulseDelay = { Value = 0.2 }
+			},
+			-- параметры коррекции движения
+			correction = {
+				mode = "None",      -- None | Lerp
+				last_dir = nil       -- для сглаживания (Lerp)
+			}
+		}
+		
+		-- SpeedMethods список и таблица
+		local SpeedMethodList = {'Velocity'}
+		-- MoveFix список коррекций движения
+		local CorrectionList = {'None','Lerp'}
+		local SpeedMethods = {
+			Velocity = function(options, moveDirection)
+				local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+				if not root then return end
+				root.AssemblyLinearVelocity = (moveDirection * options.Value.Value) + vars.Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+			end,
+			Impulse = function(options, moveDirection)
+				local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+				if not root then return end
+				local diff = ((moveDirection * options.Value.Value) - root.AssemblyLinearVelocity) * vars.Vector3.new(1, 0, 1)
+				if diff.Magnitude > (moveDirection == vars.Vector3.new(0, 0, 0) and 10 or 2) then
+					root:ApplyImpulse(diff * root.AssemblyMass)
+				end
+			end,
+			CFrame = function(options, moveDirection, dt)
+				local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+				local humanoid = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+				if not root or not humanoid then return end
+				local dest = (moveDirection * vars.math.max(options.Value.Value - humanoid.WalkSpeed, 0) * dt)
+				if options.WallCheck.Enabled then
+					options.rayCheck.FilterDescendantsInstances = {lp.Character, vars.camera}
+					options.rayCheck.CollisionGroup = root.CollisionGroup
+					local ray = vars.workspace:Raycast(root.Position, dest, options.rayCheck)
+					if ray then
+						dest = ((ray.Position + ray.Normal) - root.Position)
+					end
+				end
+				root.CFrame = root.CFrame + dest
+			end,
+			TP = function(options, moveDirection)
+				if options.TPTiming < vars.tick() then
+					options.TPTiming = vars.tick() + options.TPFrequency.Value
+					SpeedMethods.CFrame(options, moveDirection, 1)
+				end
+			end,
+			Pulse = function(options, moveDirection)
+				local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+				local humanoid = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+				if not root or not humanoid then return end
+				local dt = vars.math.max(options.Value.Value - humanoid.WalkSpeed, 0)
+				dt = dt * (1 - vars.math.min((vars.tick() % (options.PulseLength.Value + options.PulseDelay.Value)) / options.PulseLength.Value, 1))
+				root.AssemblyLinearVelocity = (moveDirection * (humanoid.WalkSpeed + dt)) + vars.Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+			end
+		}
+
+		-- коррекция направления движения для более плавного перемещения
+		local function apply_correction(dir, dt, root, humanoid)
+			local mode = speedhack_state.correction.mode
+			if mode == "None" then return dir end
+			-- нормализуем вход, избегая NaN
+			if dir.Magnitude > 1e-3 then dir = dir.Unit else return dir end
+			if mode == "Lerp" then
+				local last = speedhack_state.correction.last_dir or dir
+				local alpha = ((vars and vars.math and vars.math.clamp) or math.clamp)((dt * 60) * 0.18, 0, 1)
+				local new = last:Lerp(dir, alpha)
+				speedhack_state.correction.last_dir = new
+				return (new.Magnitude > 1e-3) and new.Unit or dir
+			end
+			return dir
+		end
+		
+		-- добавляем все методы в список
+		local tfind = (vars and vars.table and vars.table.find) or table.find
+		local tinsert = (vars and vars.table and vars.table.insert) or table.insert
+		for name in pairs(SpeedMethods) do
+			if not tfind(SpeedMethodList, name) then
+				tinsert(SpeedMethodList, name)
+			end
+		end
+		
+		local function get_move_direction()
+			local humanoid = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+			if not humanoid then return vars.Vector3.new(0, 0, 0) end
+			return humanoid.MoveDirection
+		end
+		
+		local function start_speedhack()
+			-- already connected and alive
+			if speedhack_state.connection and speedhack_state.connection.Connected then return end
+			-- guards
+			if not (vars and vars.run) then
+				if flags and flags["Debug"] then warn("[SpeedHack] RunService missing; abort start") end
+				return
+			end
+			if not lp then return end
+			-- connect Heartbeat
+			speedhack_state.connection = vars.run.Heartbeat:Connect(function(dt)
+				-- runtime guards
+				if not (speedhack_state.enabled and speedhack_state.active) then return end
+				local lchar = lp.Character
+				local humanoid = lchar and lchar:FindFirstChildOfClass("Humanoid")
+				local root = lchar and lchar:FindFirstChild("HumanoidRootPart")
+				if not (humanoid and root) then return end
+				local method = SpeedMethods[speedhack_state.method]
+				if method then
+					local moveDirection = humanoid.MoveDirection or vars.Vector3.new(0, 0, 0)
+					moveDirection = apply_correction(moveDirection, dt, root, humanoid)
+					method(speedhack_state.options, moveDirection, dt)
+				end
+			end)
+			if flags and flags["Debug"] then print("[SpeedHack] started (", speedhack_state.method, ")") end
+		end
+		
+		local function stop_speedhack()
+			if speedhack_state.connection then
+				pcall(function()
+					if speedhack_state.connection.Connected then speedhack_state.connection:Disconnect() end
+				end)
+				speedhack_state.connection = nil
+				if flags and flags["Debug"] then print("[SpeedHack] stopped") end
+			end
+		end
+
+		-- UI элементы SpeedHack
+		local speedhack_toggle = MovementSec:toggle({
+			name = "Speed",
+			flag = "SpeedHack_Toggle",
+			default = false,
+			callback = function(val)
+				speedhack_state.enabled = val
+				if val then
+					start_speedhack()
+				else
+					stop_speedhack()
+				end
+				if flags and flags["Debug"] then
+					print("[SpeedHack] enabled:", val)
+				end
+			end,
+		})
+
+		-- начальное состояние флага активности для зависимостей
+		if flags then flags["SpeedHack_Active"] = speedhack_state.active or false end
+		
+		local speedhack_keybind = speedhack_toggle:keybind({
+			name = "Speed",
+			flag = "SpeedHack_Keybind",
+			default = "v",
+			callback = function()
+				speedhack_state.active = not speedhack_state.active
+				if flags then flags["SpeedHack_Active"] = speedhack_state.active end
+				if library and library.update_dependencies then library:update_dependencies() end
+				if flags and flags["Debug"] then
+					print("[SpeedHack] active:", speedhack_state.active)
+				end
+			end,
+		})
+
+		-- зависимые элементы для SpeedHack (видимы только при Enabled && Active)
+		local speedhack_dep = MovementSec:dependency_box()
+		speedhack_dep:setup_dependencies({ { speedhack_toggle, true } })
+		
+		speedhack_dep:textbox({
+			name = "Speed",
+			flag = "SpeedHack_Value",
+			default = "16",
+			placeholder = "16",
+			callback = function(val)
+				local value = tonumber(val) or 16
+				speedhack_state.options.Value.Value = value
+			end,
+		})
+		
+		speedhack_dep:dropdown({
+			name = "Method",
+			flag = "SpeedHack_Method",
+			items = SpeedMethodList,
+			default = "Velocity",
+			callback = function(val)
+				speedhack_state.method = val
+				if library and library.update_dependencies then library:update_dependencies() end
+			end,
+		})
+		
+		-- тип коррекции движения (MoveFix)
+		speedhack_dep:dropdown({
+			name = "MoveFix",
+			flag = "SpeedHack_MoveFix",
+			items = CorrectionList,
+			default = "None",
+			callback = function(val)
+				speedhack_state.correction.mode = val
+				-- сбрасываем историю сглаживания при смене режима
+				speedhack_state.correction.last_dir = nil
+			end,
+		})
+		
+		-- дополнительные элементы (видимы при Enabled)
+		local wall_dep = MovementSec:dependency_box()
+		wall_dep:setup_dependencies({ { speedhack_toggle, true } })
+		
+		wall_dep:toggle({
+			name = "WallCheck",
+			flag = "SpeedHack_WallCheck",
+			default = false,
+			callback = function(val)
+				speedhack_state.options.WallCheck.Enabled = val
+			end,
+		})
+		
+		local tp_dep = MovementSec:dependency_box()
+		tp_dep:setup_dependencies({ { speedhack_toggle, true }, { "SpeedHack_Method", "TP" } })
+		
+		tp_dep:slider({
+			name = "TPFreq",
+			flag = "SpeedHack_TPFreq",
+			min = 0.05,
+			max = 1,
+			default = 0.1,
+			decimals = 2,
+			callback = function(val)
+				speedhack_state.options.TPFrequency.Value = val
+			end,
+		})
+		
+		local pulse_dep = MovementSec:dependency_box()
+		pulse_dep:setup_dependencies({ { speedhack_toggle, true }, { "SpeedHack_Method", "Pulse" } })
+		
+		pulse_dep:slider({
+			name = "PulseLen",
+			flag = "SpeedHack_PulseLen",
+			min = 0.1,
+			max = 5,
+			default = 0.5,
+			decimals = 1,
+			callback = function(val)
+				speedhack_state.options.PulseLength.Value = val
+			end,
+		})
+		
+		pulse_dep:slider({
+			name = "PulseDly",
+			flag = "SpeedHack_PulseDly",
+			min = 0.1,
+			max = 1,
+			default = 0.2,
+			decimals = 2,
+			callback = function(val)
+				speedhack_state.options.PulseDelay.Value = val
+			end,
+		})
+
+		-- сброс активного состояния и соединений при смене персонажа/смерти
+		local function bind_character(char)
+			-- небольшой тик, чтобы дать прогрузиться
+			if vars and vars.run then vars.run.Heartbeat:Wait() end
+			speedhack_state.active = false
+			if flags then flags["SpeedHack_Active"] = false end
+			if library and library.update_dependencies then library:update_dependencies() end
+			stop_speedhack()
+			-- если тумблер включен, после респавна пересоздаём коннект
+			if speedhack_state.enabled then
+				start_speedhack()
+			end
+			-- bind Humanoid.Died
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				if speedhack_state._died_conn then pcall(function() speedhack_state._died_conn:Disconnect() end) end
+				speedhack_state._died_conn = hum.Died:Connect(function()
+					if flags and flags["Debug"] then print("[SpeedHack] died -> reset active & stop") end
+					speedhack_state.active = false
+					if flags then flags["SpeedHack_Active"] = false end
+					if library and library.update_dependencies then library:update_dependencies() end
+					stop_speedhack()
+				end)
+			end
+		end
+
+		-- initial bind and signals
+		if lp then
+			if lp.Character then bind_character(lp.Character) end
+			if speedhack_state._char_added then pcall(function() speedhack_state._char_added:Disconnect() end) end
+			speedhack_state._char_added = lp.CharacterAdded:Connect(function(char)
+				if flags and flags["Debug"] then print("[SpeedHack] CharacterAdded") end
+				bind_character(char)
+			end)
+			if speedhack_state._char_removing then pcall(function() speedhack_state._char_removing:Disconnect() end) end
+			speedhack_state._char_removing = lp.CharacterRemoving:Connect(function()
+				if flags and flags["Debug"] then print("[SpeedHack] CharacterRemoving") end
+				speedhack_state.active = false
+				if flags then flags["SpeedHack_Active"] = false end
+				if library and library.update_dependencies then library:update_dependencies() end
+				stop_speedhack()
+			end)
+
+		-- flyhack system start
+		-- используем существующую секцию Movement (MovementSec) для UI
+		local flyhack_state = {
+			enabled = false,
+			active = false,
+			connection = nil,
+			options = {
+				Speed = { Value = 1.5 }, -- множитель; итоговая скорость = Speed * 50
+			}
+		}
+
+		local function V3(x, y, z)
+			local ctor = (vars and vars.Vector3 and vars.Vector3.new) or (Vector3 and Vector3.new)
+			return ctor and ctor(x, y, z) or nil
+		end
+
+		local function set_noclip(character, state)
+			if not character then return end
+			for _, part in ipairs(character:GetDescendants()) do
+				if part:IsA("BasePart") then
+					if state then
+						if part:GetAttribute("OriginalCollision") == nil then
+							part:SetAttribute("OriginalCollision", part.CanCollide)
+							part:SetAttribute("OriginalTouch", part.CanTouch)
+							part:SetAttribute("OriginalQuery", part.CanQuery)
+						end
+						part.CanCollide, part.CanTouch, part.CanQuery = false, false, false
+					else
+						if part:GetAttribute("OriginalCollision") ~= nil then
+							part.CanCollide = part:GetAttribute("OriginalCollision")
+							part.CanTouch = part:GetAttribute("OriginalTouch")
+							part.CanQuery = part:GetAttribute("OriginalQuery")
+							part:SetAttribute("OriginalCollision", nil)
+							part:SetAttribute("OriginalTouch", nil)
+							part:SetAttribute("OriginalQuery", nil)
+						end
+					end
+				end
+			end
+		end
+
+		local function start_flyhack()
+			if flyhack_state.connection and flyhack_state.connection.Connected then return end
+			if not (vars and vars.run) then return end
+			flyhack_state.connection = vars.run.Stepped:Connect(function()
+				if not (flyhack_state.enabled and flyhack_state.active) then return end
+				local char = lp and lp.Character
+				if not char then return end
+				set_noclip(char, true)
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if not (hrp and hum) then return end
+				local speed = (flyhack_state.options.Speed.Value or 1.5) * 50
+				local velocity = V3(0, 0, 0)
+				local UIS = (vars and vars.uis) or game:GetService("UserInputService")
+				local Cam = (vars and vars.cam) or (workspace and workspace.CurrentCamera)
+				if not UIS or not Cam then return end
+				if UIS:IsKeyDown(Enum.KeyCode.Space) then velocity = velocity + V3(0, speed, 0) end
+				if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then velocity = velocity + V3(0, -speed, 0) end
+				if UIS:IsKeyDown(Enum.KeyCode.W) then velocity = velocity + (Cam.CFrame.LookVector * speed) end
+				if UIS:IsKeyDown(Enum.KeyCode.S) then velocity = velocity + (Cam.CFrame.LookVector * -speed) end
+				if UIS:IsKeyDown(Enum.KeyCode.D) then velocity = velocity + (Cam.CFrame.RightVector * speed) end
+				if UIS:IsKeyDown(Enum.KeyCode.A) then velocity = velocity + (Cam.CFrame.RightVector * -speed) end
+				-- применяем скорость и держим состояние свободного падения
+				hrp.Velocity = velocity
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Freefall) end)
+			end)
+			if flags and flags["Debug"] then print("[FlyHack] started") end
+		end
+
+		local function stop_flyhack()
+			if flyhack_state.connection then
+				pcall(function()
+					if flyhack_state.connection.Connected then flyhack_state.connection:Disconnect() end
+				end)
+				flyhack_state.connection = nil
+			end
+			local char = lp and lp.Character
+			set_noclip(char, false)
+			if char then
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if hrp then
+					-- быстрая фиксация: сброс XZ-компонент за один Stepped тик, как в референс-логике
+					hrp.Velocity = V3(0, -2, 0)
+					local tmp
+					tmp = ((vars and vars.run and vars.run.Stepped) or game:GetService("RunService").Stepped):Connect(function()
+						if not hrp or not hrp.Parent then if tmp and tmp.Connected then tmp:Disconnect() end return end
+						hrp.Velocity = V3(0, hrp.Velocity.Y, 0)
+						if tmp and tmp.Connected then tmp:Disconnect() end
+					end)
+				end
+				if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.Landing) end) end
+			end
+			if flags and flags["Debug"] then print("[FlyHack] stopped") end
+		end
+
+		-- мягкая остановка при отключении по кейбинду (не трогаем основное подключение)
+		local function soft_stop_flyhack()
+			local char = lp and lp.Character
+			-- вернуть коллизии сразу, чтобы не оставаться в noclip
+			set_noclip(char, false)
+			if not char then return end
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hrp then
+				-- полный сброс линейной/угловой скорости (Assembly*) + fallback на Velocity
+				pcall(function() hrp.AssemblyLinearVelocity = V3(0, 0, 0) end)
+				pcall(function() hrp.AssemblyAngularVelocity = V3(0, 0, 0) end)
+				-- небольшой импульс вниз и зануление XZ на следующий тик для устранения дрейфа
+				hrp.Velocity = V3(0, -2, 0)
+				local tmp
+				tmp = ((vars and vars.run and vars.run.Stepped) or game:GetService("RunService").Stepped):Connect(function()
+					if not hrp or not hrp.Parent then if tmp and tmp.Connected then tmp:Disconnect() end return end
+					local vy = hrp.Velocity.Y
+					pcall(function() hrp.AssemblyLinearVelocity = V3(0, vy, 0) end)
+					hrp.Velocity = V3(0, vy, 0)
+					if tmp and tmp.Connected then tmp:Disconnect() end
+				end)
+			end
+			if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.Landing) end) end
+			if flags and flags["Debug"] then print("[FlyHack] soft-stopped (keybind)") end
+		end
+
+		-- UI элементы FlyHack
+		local fly_toggle = MovementSec:toggle({
+			name = "Flight",
+			flag = "FlyHack_Toggle",
+			default = false,
+			callback = function(val)
+				flyhack_state.enabled = val
+				if val then start_flyhack() else stop_flyhack() end
+				if flags and flags["Debug"] then print("[FlyHack] enabled:", val) end
+			end
+		})
+
+		if flags then flags["FlyHack_Active"] = flyhack_state.active or false end
+		local fly_keybind = fly_toggle:keybind({
+			name = "Flight",
+			flag = "FlyHack_Keybind",
+			default = "b",
+			callback = function()
+				flyhack_state.active = not flyhack_state.active
+				-- если выключили по кейбинду, мягко сбрасываем скорости и возвращаем коллизии
+				if not flyhack_state.active then
+					soft_stop_flyhack()
+				end
+				if flags then flags["FlyHack_Active"] = flyhack_state.active end
+				if library and library.update_dependencies then library:update_dependencies() end
+				if flags and flags["Debug"] then print("[FlyHack] active:", flyhack_state.active) end
+			end
+		})
+
+		local fly_dep = MovementSec:dependency_box()
+		fly_dep:setup_dependencies({ { fly_toggle, true } })
+		fly_dep:textbox({
+			name = "Spd",
+			flag = "FlyHack_Speed",
+			default = tostring(flyhack_state.options.Speed.Value or 1.5),
+			callback = function(v)
+				local num = tonumber(v)
+				if num then flyhack_state.options.Speed.Value = num end
+			end
+		})
+
+		-- привязки к персонажу
+		local function bind_fly_character(char)
+			if vars and vars.run then vars.run.Heartbeat:Wait() end
+			flyhack_state.active = false
+			if flags then flags["FlyHack_Active"] = false end
+			if library and library.update_dependencies then library:update_dependencies() end
+			stop_flyhack()
+			if flyhack_state.enabled then start_flyhack() end
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				if flyhack_state._died_conn then pcall(function() flyhack_state._died_conn:Disconnect() end) end
+				flyhack_state._died_conn = hum.Died:Connect(function()
+					if flags and flags["Debug"] then print("[FlyHack] died -> reset active & stop") end
+					flyhack_state.active = false
+					if flags then flags["FlyHack_Active"] = false end
+					if library and library.update_dependencies then library:update_dependencies() end
+					stop_flyhack()
+				end)
+			end
+		end
+
+		if lp then
+			if lp.Character then bind_fly_character(lp.Character) end
+			if flyhack_state._char_added then pcall(function() flyhack_state._char_added:Disconnect() end) end
+			flyhack_state._char_added = lp.CharacterAdded:Connect(function(char)
+				if flags and flags["Debug"] then print("[FlyHack] CharacterAdded") end
+				bind_fly_character(char)
+			end)
+			if flyhack_state._char_removing then pcall(function() flyhack_state._char_removing:Disconnect() end) end
+			flyhack_state._char_removing = lp.CharacterRemoving:Connect(function()
+				if flags and flags["Debug"] then print("[FlyHack] CharacterRemoving") end
+				flyhack_state.active = false
+				if flags then flags["FlyHack_Active"] = false end
+				if library and library.update_dependencies then library:update_dependencies() end
+				stop_flyhack()
+			end)
+		end
+		-- flyhack system end
+	end
+	end
+	-- movement system end
 	end
 	-- misc system end
 
