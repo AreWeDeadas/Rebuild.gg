@@ -5922,11 +5922,235 @@ end
 			end
 		})
  	end
- 	-- strafe system end
- 
- 
-  -- movement system end
- end
+ 		-- strafe system end
+
+
+	 -- movement system end
+	end
+
+	-- stuff (chat spammer) system start
+	do
+		local stuff_col = Misc:column()
+		local StuffSec = stuff_col:section({ name = "Stuff" })
+
+		-- chat spammer state/config
+		local chatspammer_state = {
+			enabled = false,
+			delay = 4,
+			type = "Toxic",
+			loop = nil,
+			filter_installed = false,
+			prev_filter = nil,
+			_msgset = nil,
+		}
+
+		local chatspammer_msgs = {
+			Toxic = {
+				"you're trash, a newbie could do better",
+				"imagine dying",
+				"oops i forgot you were there, oh wait you don't even exist",
+				"ez ez you got clapped by a low level",
+				"why are you dying to me bro fr fr",
+				"clapped by Rebuild user",
+				"bro got clapped lol",
+				"imagine being fatherless, go check where yours are",
+				"sorry did my target aim hit you? if so you're trash",
+				"bro got skill issues",
+				"bozo can't even beat me",
+				"are you serious rn",
+				"ez bozo",
+				"your dad never came back from the milk store for a reason",
+				"did your mother drop you when you were born",
+				"you really need a therapist",
+				"you should go back to kindergarten bro",
+				"i'm just better than you"
+			},
+			Ad = {
+				"Rebuild > u",
+				"Rebuild owns you",
+				"get good get Rebuild",
+				"stop crying and get Rebuild",
+				"get Rebuild right now bro",
+				"get your aim up and get Rebuild",
+				"stop complaining and get Rebuild",
+				"Rebuild > your career",
+				"yes i know Rebuild is the best",
+				"Rebuild has more features than your grandmother",
+				"get better dude",
+				"bro just get Rebuild lol",
+				"yo 12 year old get Rebuild",
+				"Rebuild on top fr fr",
+				"Rebuild better than you smh smh smh"
+			},
+			Freak = {
+				"wenomechainsama tumajarbisaun",
+				"roll the ops on me then",
+				"wdym touch grass i have one of those on my feet",
+				"fortnite $19 gift card who wants it",
+				"who are you talking to? a kill say bot?",
+				"cheap microwave",
+				"i like bricks",
+				"what's up 'hackle cheatle' here guys, i've been arrested for multiple crimes including cheating",
+				"🤓: stop hacking! it's against the rules!",
+				"🤓: you can't just exploit here, it's illegal"
+			},
+		}
+
+		local function rebuild_msgset()
+			local set = {}
+			local list = chatspammer_msgs[chatspammer_state.type] or {}
+			for _, m in ipairs(list) do
+				set[string.lower(m)] = true
+			end
+			chatspammer_state._msgset = set
+		end
+
+		local function ensure_text_channel()
+			local ok, tcs = pcall(function()
+				return game:GetService("TextChatService")
+			end)
+			if not ok or not tcs then return nil, nil end
+			local channels = tcs:FindFirstChild("TextChannels")
+			local general = channels and channels:FindFirstChild("RBXGeneral")
+			if not general then
+				pcall(function()
+					channels = tcs:WaitForChild("TextChannels", 2)
+					general = channels and channels:WaitForChild("RBXGeneral", 2)
+				end)
+			end
+			return tcs, general
+		end
+
+		local function install_filter()
+			if chatspammer_state.filter_installed then return end
+			local tcs = select(1, ensure_text_channel())
+			if not tcs then return end
+			chatspammer_state.prev_filter = tcs.OnIncomingMessage
+			tcs.OnIncomingMessage = function(msg)
+				local lp = game:GetService("Players").LocalPlayer
+				local hide = false
+				if chatspammer_state.hide_local and msg and msg.TextSource and lp and msg.TextSource.UserId == lp.UserId then
+					local txt = string.lower(tostring(msg.Text or ""))
+					if chatspammer_state._msgset and chatspammer_state._msgset[txt] then
+						hide = true
+					end
+				end
+				if hide then
+					return Enum.TextChatMessageStatus.Hidden
+				end
+				if chatspammer_state.prev_filter then
+					local ok, res = pcall(chatspammer_state.prev_filter, msg)
+					if ok and res ~= nil then return res end
+				end
+				return Enum.TextChatMessageStatus.Displayed
+			end
+			chatspammer_state.filter_installed = true
+		end
+
+		local function remove_filter()
+			local tcs = select(1, ensure_text_channel())
+			if not tcs then return end
+			if chatspammer_state.filter_installed then
+				tcs.OnIncomingMessage = chatspammer_state.prev_filter
+				chatspammer_state.prev_filter = nil
+				chatspammer_state.filter_installed = false
+			end
+		end
+
+		local function send_chat_message(text)
+			-- Prefer new TextChatService
+			local tcs, channel = ensure_text_channel()
+			if channel and channel.SendAsync then
+				pcall(function()
+					channel:SendAsync(text)
+				end)
+				return
+			end
+			-- Legacy chat fallback
+			local rs = game:GetService("ReplicatedStorage")
+			local evs = rs:FindFirstChild("DefaultChatSystemChatEvents")
+			local say = evs and evs:FindFirstChild("SayMessageRequest")
+			if say then
+				pcall(function()
+					say:FireServer(text, "All")
+				end)
+			end
+		end
+
+		local function start_spammer()
+			if chatspammer_state.loop then return end
+			rebuild_msgset()
+			if chatspammer_state.hide_local then install_filter() end
+			local tasksvc = (vars and vars.task) or task
+			local mlib = (vars and vars.math) or math
+			chatspammer_state.loop = tasksvc.spawn(function()
+				while chatspammer_state.enabled do
+					local list = chatspammer_msgs[chatspammer_state.type] or {}
+					if #list > 0 then
+						local idx = mlib.random(1, #list)
+						local msg = list[idx]
+						-- ensure hide set knows about current messages
+						if chatspammer_state.hide_local and chatspammer_state._msgset then
+							chatspammer_state._msgset[string.lower(msg)] = true
+						end
+						send_chat_message(msg)
+					end
+					local d = tonumber(chatspammer_state.delay) or 4
+					tasksvc.wait(mlib.max(2, mlib.min(d, 10)))
+				end
+			end)
+		end
+
+		local function stop_spammer()
+			if chatspammer_state.loop then
+				pcall(function()
+					((vars and vars.task) or task).cancel(chatspammer_state.loop)
+				end)
+				chatspammer_state.loop = nil
+			end
+			remove_filter()
+		end
+
+		-- UI
+		local spam_toggle = StuffSec:toggle({
+			name = "Enabled",
+			flag = "ChatSpammer_Toggle",
+			default = false,
+			callback = function(v)
+				chatspammer_state.enabled = v
+				if v then start_spammer() else stop_spammer() end
+				if library and library.update_dependencies then library:update_dependencies() end
+			end
+		})
+
+		local spam_dep = StuffSec:dependency_box()
+		spam_dep:setup_dependencies({ { spam_toggle, true } })
+
+		spam_dep:dropdown({
+			name = "Type",
+			flag = "ChatSpammer_Type",
+			items = { "Toxic", "Ad", "Freak" },
+			default = chatspammer_state.type,
+			callback = function(val)
+				chatspammer_state.type = val
+				rebuild_msgset()
+			end
+		})
+
+		spam_dep:slider({
+			name = "Dly",
+			flag = "ChatSpammer_Delay",
+			min = 2,
+			max = 10,
+			default = 4,
+			decimals = 0,
+			callback = function(val)
+				chatspammer_state.delay = val
+			end
+		})
+	end
+	-- stuff (chat spammer) system end
+
  -- misc system end
 end
 
