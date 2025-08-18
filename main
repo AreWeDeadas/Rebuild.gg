@@ -6148,8 +6148,947 @@ end
 				chatspammer_state.delay = val
 			end
 		})
-	end
-	-- stuff (chat spammer) system end
+
+		-- antivoid system start
+		local antivoid_state = {
+			enabled = false,
+			saved_height = nil,
+		}
+
+		-- cache original FallenPartsDestroyHeight on script start
+		do
+			local ok, ws = pcall(function()
+				return game:GetService("Workspace")
+			end)
+			if ok and ws then
+				antivoid_state.saved_height = ws.FallenPartsDestroyHeight
+			end
+		end
+
+		local function antivoid_set(on)
+			local ok, ws = pcall(function()
+				return game:GetService("Workspace")
+			end)
+			if not (ok and ws) then return end
+			if on then
+				if antivoid_state.saved_height == nil then
+					antivoid_state.saved_height = ws.FallenPartsDestroyHeight
+				end
+				ws.FallenPartsDestroyHeight = -math.huge
+			else
+				if antivoid_state.saved_height ~= nil then
+					ws.FallenPartsDestroyHeight = antivoid_state.saved_height
+				end
+			end
+		end
+
+		-- on-unload cleanup for AntiVoid
+		do
+			local function antivoid_cleanup_disconnect()
+				local ok, ws = pcall(function()
+					return game:GetService("Workspace")
+				end)
+				if ok and ws and antivoid_state and antivoid_state.enabled then
+					pcall(function()
+						if antivoid_state.saved_height ~= nil then
+							ws.FallenPartsDestroyHeight = antivoid_state.saved_height
+						end
+					end)
+				end
+			end
+			if library and library.connections and type(library.connections) == "table" then
+				table.insert(library.connections, { Disconnect = antivoid_cleanup_disconnect })
+			end
+		end
+
+		StuffSec:toggle({
+			name = "AntiVoid",
+			flag = "AntiVoid_Toggle",
+			default = false,
+			callback = function(v)
+				antivoid_state.enabled = v
+				antivoid_set(v)
+				if library and library.update_dependencies then library:update_dependencies() end
+			end
+		})
+		-- antivoid system end
+
+		-- antistomp system start
+		local antistomp_state = {
+			enabled = false,
+			method = "CframeFling",
+			health = 20,
+			conn = nil,
+		}
+
+		-- sanitize legacy method from old configs
+		do
+			if antistomp_state.method ~= "CframeFling" and antistomp_state.method ~= "VelocityFling" then
+				antistomp_state.method = "CframeFling"
+			end
+		end
+
+		local function antistomp_disconnect()
+			if antistomp_state.conn then
+				pcall(function() antistomp_state.conn:Disconnect() end)
+				antistomp_state.conn = nil
+			end
+		end
+
+		-- on-unload cleanup for AntiStomp
+		do
+			if library and library.connections and type(library.connections) == "table" then
+				table.insert(library.connections, { Disconnect = antistomp_disconnect })
+			end
+		end
+
+		local function antistomp_enable()
+			antistomp_disconnect()
+			local ok_rs, rs = pcall(function()
+				return game:GetService("RunService")
+			end)
+			if not ok_rs or not rs then return end
+			antistomp_state.conn = rs.Stepped:Connect(function()
+				local ok_plrs, players = pcall(function()
+					return game:GetService("Players")
+				end)
+				if not ok_plrs or not players then return end
+				local lp = players.LocalPlayer
+				local char = lp and lp.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if not hum then return end
+
+				if hum.Health <= antistomp_state.health then
+					local method = antistomp_state.method
+					if method ~= "CframeFling" and method ~= "VelocityFling" then
+						method = "CframeFling"
+						antistomp_state.method = method
+					end
+					if method == "CframeFling" then
+						for _, v in ipairs(char:GetChildren()) do
+							if v:IsA("MeshPart") or v:IsA("Part") then
+								pcall(function()
+									v.CFrame = v.CFrame * CFrame.fromEulerAnglesXYZ(math.rad(35), math.rad(35), math.rad(35)) * CFrame.new(0, 50, 0)
+									v.CFrame = v.CFrame * CFrame.fromEulerAnglesXYZ(math.rad(-35), math.rad(20), math.rad(-15)) * CFrame.new(0, 50, 0)
+								end)
+							end
+						end
+					elseif method == "VelocityFling" then
+						local hrp = char:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							local fling = Vector3.new(1e5, 1e5, 1e5)
+							pcall(function()
+								hrp.Velocity, hrp.AssemblyLinearVelocity = fling, fling
+								hrp.RotVelocity = Vector3.new(0, 1e4, 0)
+								hrp.AssemblyAngularVelocity = Vector3.new(0, 1e4, 0)
+							end)
+						end
+					end
+				end
+			end)
+		end
+
+		local function antistomp_set_enabled(v)
+			antistomp_state.enabled = v
+			if v then
+				antistomp_enable()
+			else
+				antistomp_disconnect()
+			end
+		end
+
+		local stomp_toggle = StuffSec:toggle({
+			name = "AntiStomp",
+			flag = "AntiStomp_Toggle",
+			default = false,
+			callback = function(v)
+				antistomp_set_enabled(v)
+				if library and library.update_dependencies then library:update_dependencies() end
+			end
+		})
+
+		local stomp_dep = StuffSec:dependency_box()
+		stomp_dep:setup_dependencies({ { stomp_toggle, true } })
+
+		stomp_dep:dropdown({
+			name = "Mode",
+			flag = "AntiStomp_Mode",
+			items = { "CframeFling", "VelocityFling" },
+			default = antistomp_state.method,
+			callback = function(val)
+				antistomp_state.method = val
+			end
+		})
+
+		stomp_dep:slider({
+			name = "HP",
+			flag = "AntiStomp_HP",
+			min = 1,
+			max = 100,
+			default = antistomp_state.health,
+			decimals = 0,
+			callback = function(val)
+				antistomp_state.health = val
+			end
+		})
+		-- antistomp system end
+
+		-- anti seats system start
+		local antiseats_state = {
+			enabled = false,
+			conn = nil,
+			bin = {}, -- [Instance] = original_parent
+		}
+
+		local function antiseats_disconnect()
+			if antiseats_state.conn then
+				pcall(function() antiseats_state.conn:Disconnect() end)
+				antiseats_state.conn = nil
+			end
+		end
+
+		local function antiseats_apply(state)
+			local ok_game, dm = pcall(function()
+				return game
+			end)
+			if not ok_game or not dm then return end
+			if state then
+				-- remove all existing seats (store original parent)
+				local descendants = dm:GetDescendants()
+				for i = 1, #descendants do
+					local obj = descendants[i]
+					if obj and (obj.ClassName == "Seat" or obj.ClassName == "VehicleSeat") then
+						if obj.Parent ~= nil and antiseats_state.bin[obj] == nil then
+							local ok_par, parent = pcall(function() return obj.Parent end)
+							if ok_par and parent then
+								antiseats_state.bin[obj] = parent
+								pcall(function() obj.Parent = nil end)
+							end
+						end
+					end
+				end
+			else
+				-- restore all removed seats
+				for inst, parent in pairs(antiseats_state.bin) do
+					if inst then
+						pcall(function() inst.Parent = parent end)
+					end
+				end
+				antiseats_state.bin = {}
+			end
+		end
+
+		local function antiseats_set_enabled(on)
+			antiseats_state.enabled = on
+			if on then
+				antiseats_apply(true)
+				local ok_game, dm = pcall(function()
+					return game
+				end)
+				if ok_game and dm then
+					antiseats_disconnect()
+					antiseats_state.conn = dm.DescendantAdded:Connect(function(obj)
+						if not antiseats_state.enabled then return end
+						if obj and (obj.ClassName == "Seat" or obj.ClassName == "VehicleSeat") then
+							if obj.Parent ~= nil and antiseats_state.bin[obj] == nil then
+								local ok_par, parent = pcall(function() return obj.Parent end)
+								if ok_par and parent then
+									antiseats_state.bin[obj] = parent
+									pcall(function() obj.Parent = nil end)
+								end
+							end
+						end
+					end)
+				end
+			else
+				antiseats_disconnect()
+				antiseats_apply(false)
+			end
+		end
+
+		-- on-unload cleanup for AntiSeats
+		do
+			if library and library.connections and type(library.connections) == "table" then
+				table.insert(library.connections, {
+					Disconnect = function()
+						antiseats_disconnect()
+						if antiseats_state and antiseats_state.enabled then
+							antiseats_apply(false)
+						end
+					end
+				})
+			end
+		end
+
+		local seats_toggle = StuffSec:toggle({
+			name = "AntiSeats",
+			flag = "AntiSeats_Toggle",
+			default = false,
+			callback = function(v)
+				antiseats_set_enabled(v)
+				if library and library.update_dependencies then library:update_dependencies() end
+			end
+		})
+		-- anti seats system end
+
+		-- clear trash system start
+		local cleartrash_state = {
+			enabled = false,
+			bin = {}, -- [Instance] = original_parent
+		}
+
+		local function cleartrash_apply(state)
+			local ok_ws, ws = pcall(function()
+				return game:GetService("Workspace")
+			end)
+			if not ok_ws or not ws then return end
+
+			local targets, seen = {}, {}
+			local function add(inst)
+				if inst and typeof(inst) == "Instance" and not seen[inst] then
+					seen[inst] = true
+					targets[#targets+1] = inst
+				end
+			end
+
+			-- by exact names under Workspace
+			local names = {
+				"Donation Board by @DaaalzYT",
+				" [Spit] - R$150 (READ DESC)",
+				"[Spawn With AimViewer] - R$60",
+				"[Char Command] - R$50 READ DESCRIPTION",
+				"[Emoji \226\152\128 - R$59",
+				"[Emoji \240\159\143\150 - R$59",
+				"[Emoji \240\159\170\129 - R$75",
+				"[Emoji \240\159\165\165 - R$85",
+				"[Emoji \240\159\144\172] - R$35",
+				"[Emoji \240\159\165\189] - R$35",
+				"[Emoji \240\159\141\168 - R$60",
+				"[Emoji \240\159\146\142] - R$100",
+				"[Emoji \240\159\142\175] - R$60",
+				"[10 streaks tags] - R$275",
+				"[streak tag] - R$40",
+				"[10 stomp effects] - R$325",
+				"[stomp effect] - R$45",
+				"[Emoji \240\159\146\184] - R$100",
+				"[Emoji \240\159\141\128] - R$60",
+				"[Emoji - [\240\159\140\184] - R75]",
+				"[Emoji \240\159\146\165] - R$20",
+				"[Emoji \240\159\145\145] - R$400",
+				"[Emoji \226\155\177] - R$55 ",
+				"[Spawn With Mask] - R$70",
+				"[Spawn With Shotgun] - R$85",
+				"[Spawn With TacticalSG] - R$115",
+				"[Spawn With Armor] - R$100",
+				"StandForLimitedKnives",
+				"StandForLimitedFood",
+				"Gun Stand",
+				"Osiris Scythe -- 299R$ (Limited Stock)",
+				"UmbrellaColor2",
+				"UmbrellaColor1",
+				"UmbrellaStick",
+				"Mesh_0",
+				"WashingMachineFUNC",
+				"bush",
+			}
+			for i = 1, #names do
+				local obj = ws:FindFirstChild(names[i])
+				if obj then add(obj) end
+			end
+
+			-- workspace:GetChildren()[indices]
+			local ch = ws:GetChildren()
+			local idx = {159, 140, 628, 164, 575, 1462, 576, 569, 1612}
+			for i = 1, #idx do
+				local n = idx[i]
+				if ch[n] then add(ch[n]) end
+			end
+
+			-- nested: Gun Stand > Model children indices
+			local gs = ws:FindFirstChild("Gun Stand")
+			if gs then
+				local mdl = gs:FindFirstChild("Model")
+				if mdl then
+					local kids = mdl:GetChildren()
+					local m_idx = {6, 10}
+					for i = 1, #m_idx do
+						local n = m_idx[i]
+						if kids[n] then add(kids[n]) end
+					end
+				end
+			end
+
+			-- nested: MAP > Map child index
+			local mapRoot = ws:FindFirstChild("MAP")
+			if mapRoot then
+				local map = mapRoot:FindFirstChild("Map")
+				if map then
+					local kids = map:GetChildren()
+					-- direct indices under Map DISABLED (too risky)
+					-- keep only named targets and precise nested children below
+					-- children of kids[603] by indices
+					local k603 = kids[603]
+					if k603 then
+						local c603 = k603:GetChildren()
+						local c_idx = {311, 89, 205}
+						for i = 1, #c_idx do
+							local n = c_idx[i]
+							if c603[n] then add(c603[n]) end
+						end
+					end
+					-- by exact names under Map
+					local map_names = {"Meshes/mountain", "Lights", "trash", "Gate", "Car2"}
+					for i = 1, #map_names do
+						local obj = map:FindFirstChild(map_names[i])
+						if obj then add(obj) end
+					end
+				end
+			end
+
+			-- nested: Summer Location
+			local sl = ws:FindFirstChild("Summer Location")
+			if sl then
+				-- Model-specific children by indices and names
+				local sl_model = sl:FindFirstChild("Model")
+				if sl_model then
+					local skids = sl_model:GetChildren()
+					local sl_idx = {5, 49, 58, 60, 61, 59, 44, 22, 19, 20, 46, 48, 29, 30, 10, 14, 16, 106, 40, 189, 47, 63, 8, 68, 38, 34}
+					for i = 1, #sl_idx do
+						local n = sl_idx[i]
+						if skids[n] then add(skids[n]) end
+					end
+					-- named children inside Model
+					for _, nm in ipairs({"Sand castle", "Meshes/mountain"}) do
+						local obj = sl_model:FindFirstChild(nm)
+						if obj then add(obj) end
+					end
+				end
+				-- Pool House specifics
+				local pool = sl:FindFirstChild("Pool House")
+				if pool then
+					local pkids = pool:GetChildren()
+					if pkids[3] then add(pkids[3]) end
+					local light = pool:FindFirstChild("Light")
+					if light then add(light) end
+				end
+				-- other children under Summer Location
+				local sl_kids = sl:GetChildren()
+				if sl_kids[4] then add(sl_kids[4]) end
+				local fish = sl:FindFirstChild("[Fish]")
+				if fish then add(fish) end
+			end
+
+			-- explicit path targets (user-defined resolvers)
+			local function get_child_by_index(parent, idx)
+				local ok, children = pcall(function() return parent:GetChildren() end)
+				if ok and children and type(idx) == "number" and idx >= 1 and idx <= #children then
+					return children[idx]
+				end
+			end
+
+			local resolvers = {
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					local mdl = sl:FindFirstChild("Model"); if not mdl then return end
+					return get_child_by_index(mdl, 4)
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					return get_child_by_index(map, 800)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					local mdl = sl:FindFirstChild("Model"); if not mdl then return end
+					return get_child_by_index(mdl, 52)
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local slm = map:FindFirstChild("Summer Location"); if not slm then return end
+					return slm:FindFirstChild("Beach Bar")
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local slm = map:FindFirstChild("Summer Location"); if not slm then return end
+					return slm:FindFirstChild("Fishing Ship")
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					return map:FindFirstChild("BillboardSign")
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					return get_child_by_index(map, 265)
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local k655 = get_child_by_index(map, 655); if not k655 then return end
+					return get_child_by_index(k655, 13)
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local k655 = get_child_by_index(map, 655); if not k655 then return end
+					return get_child_by_index(k655, 11)
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					return get_child_by_index(map, 713)
+				end,
+				function()
+					local boom = ws:FindFirstChild("Boom Taco's"); if not boom then return end
+					local mdl = boom:FindFirstChild("Model"); if not mdl then return end
+					return mdl:FindFirstChild("amthere8_ballzs")
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					return mapRoot:FindFirstChild("Lights")
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local slm = map:FindFirstChild("Summer Location"); if not slm then return end
+					return slm:FindFirstChild("mod")
+				end,
+				function()
+					local r10 = get_child_by_index(ws, 10); if not r10 then return end
+					local mdl = r10:FindFirstChild("Model"); if not mdl then return end
+					local slb = mdl:FindFirstChild("Streak leaderboard"); if not slb then return end
+					return slb:FindFirstChild("Meshes/rounded_sides_Plane.003")
+				end,
+				function()
+					local r10 = get_child_by_index(ws, 10); if not r10 then return end
+					local mdl = r10:FindFirstChild("Model"); if not mdl then return end
+					local slb = mdl:FindFirstChild("Streak leaderboard"); if not slb then return end
+					return slb:FindFirstChild("Meshes/rounded_sides_Plane.002")
+				end,
+				function()
+					local r10 = get_child_by_index(ws, 10); if not r10 then return end
+					local mdl = r10:FindFirstChild("Model"); if not mdl then return end
+					local slb = mdl:FindFirstChild("Streak leaderboard"); if not slb then return end
+					return slb:FindFirstChild("Meshes/rounded_sides_Plane.001")
+				end,
+				function()
+					local r10 = get_child_by_index(ws, 10); if not r10 then return end
+					local mdl = r10:FindFirstChild("Model"); if not mdl then return end
+					local slb = mdl:FindFirstChild("Streak leaderboard"); if not slb then return end
+					return slb:FindFirstChild("Model")
+				end,
+				function()
+					local r10 = get_child_by_index(ws, 10); if not r10 then return end
+					local mdl = r10:FindFirstChild("Model"); if not mdl then return end
+					return mdl:FindFirstChild("Streak leaderboard")
+				end,
+				function()
+					local r10 = get_child_by_index(ws, 10); if not r10 then return end
+					local mdl = r10:FindFirstChild("Model"); if not mdl then return end
+					return mdl:FindFirstChild("Model")
+				end,
+				function()
+					local r10 = get_child_by_index(ws, 10); if not r10 then return end
+					return r10:FindFirstChild("Model")
+				end,
+				function()
+					return get_child_by_index(ws, 136)
+				end,
+				function()
+					return ws:FindFirstChild("GameBillboards")
+				end,
+				function()
+					local r10 = get_child_by_index(ws, 10); if not r10 then return end
+					return r10:FindFirstChild("Top Time Played Leaderboard")
+				end,
+				function()
+					local r116 = get_child_by_index(ws, 116); if not r116 then return end
+					local m1 = r116:FindFirstChild("Model"); if not m1 then return end
+					local m2 = m1:FindFirstChild("Model"); if not m2 then return end
+					local m3 = m2:FindFirstChild("Model"); if not m3 then return end
+					return get_child_by_index(m3, 8)
+				end,
+				function()
+					local pvp = ws:FindFirstChild("PVP ARENA"); if not pvp then return end
+					local m1 = pvp:FindFirstChild("Model"); if not m1 then return end
+					return m1:FindFirstChild("Model")
+				end,
+				function()
+					local pvp = ws:FindFirstChild("PVP ARENA"); if not pvp then return end
+					local m1 = pvp:FindFirstChild("Model"); if not m1 then return end
+					return m1:FindFirstChild("Sand castle")
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					return get_child_by_index(map, 742)
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					return map:FindFirstChild("Car2")
+				end,
+				-- user additions begin
+				function() return ws:FindFirstChild("Construction Site") end,
+				function() return get_child_by_index(ws, 200) end,
+				function() return get_child_by_index(ws, 121) end,
+				function() return get_child_by_index(ws, 198) end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local k603 = get_child_by_index(map, 603); if not k603 then return end
+					local k265 = get_child_by_index(k603, 265); if not k265 then return end
+					return k265:FindFirstChild("Palm Tree")
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local k603 = get_child_by_index(map, 603); if not k603 then return end
+					local k265 = get_child_by_index(k603, 265); if not k265 then return end
+					return get_child_by_index(k265, 2)
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local k603 = get_child_by_index(map, 603); if not k603 then return end
+					local k207 = get_child_by_index(k603, 207); if not k207 then return end
+					local mdl = k207:FindFirstChild("Model"); if not mdl then return end
+					return get_child_by_index(mdl, 2)
+				end,
+				function()
+					local mapRoot = ws:FindFirstChild("MAP"); if not mapRoot then return end
+					local map = mapRoot:FindFirstChild("Map"); if not map then return end
+					local k603 = get_child_by_index(map, 603); if not k603 then return end
+					local k207 = get_child_by_index(k603, 207); if not k207 then return end
+					local mdl = k207:FindFirstChild("Model"); if not mdl then return end
+					return mdl:FindFirstChild("Palm Tree")
+				end,
+				function() return get_child_by_index(ws, 270) end,
+				function() return get_child_by_index(ws, 267) end,
+				function() return ws:FindFirstChild("Palm Tree") end,
+				function()
+					local r125 = get_child_by_index(ws, 125); if not r125 then return end
+					return r125:FindFirstChild("Palm Tree")
+				end,
+				function()
+					local f = ws:FindFirstChild("Folder"); if not f then return end
+					local k66 = get_child_by_index(f, 66); if not k66 then return end
+					local mdl = k66:FindFirstChild("Model"); if not mdl then return end
+					return mdl:FindFirstChild("Palm Tree")
+				end,
+				function()
+					local f = ws:FindFirstChild("Folder"); if not f then return end
+					local k66 = get_child_by_index(f, 66); if not k66 then return end
+					local c4 = get_child_by_index(k66, 4); if not c4 then return end
+					return c4:FindFirstChild("Palm Tree")
+				end,
+				function()
+					local f = ws:FindFirstChild("Folder"); if not f then return end
+					local k66 = get_child_by_index(f, 66); if not k66 then return end
+					return k66:FindFirstChild("Palm Tree")
+				end,
+				function()
+					local f = ws:FindFirstChild("Folder"); if not f then return end
+					local k66 = get_child_by_index(f, 66); if not k66 then return end
+					local part = k66:FindFirstChild("Part"); if not part then return end
+					return get_child_by_index(part, 2)
+				end,
+				function()
+					local f = ws:FindFirstChild("Folder"); if not f then return end
+					local k66 = get_child_by_index(f, 66); if not k66 then return end
+					local part = k66:FindFirstChild("Part"); if not part then return end
+					return part:FindFirstChild("Palm Tree")
+				end,
+				function()
+					local f = ws:FindFirstChild("Folder"); if not f then return end
+					local k66 = get_child_by_index(f, 66); if not k66 then return end
+					return k66:FindFirstChild("Part")
+				end,
+				function()
+					local r460 = get_child_by_index(ws, 460); if not r460 then return end
+					return get_child_by_index(r460, 2)
+				end,
+				function()
+					local r460 = get_child_by_index(ws, 460); if not r460 then return end
+					local m1 = r460:FindFirstChild("Model"); if not m1 then return end
+					return m1:FindFirstChild("Model")
+				end,
+				function() return get_child_by_index(ws, 224) end,
+				function()
+					local r126 = get_child_by_index(ws, 126); if not r126 then return end
+					return get_child_by_index(r126, 3)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return sl:FindFirstChild("mod")
+				end,
+				-- Summer Location extra targets begin
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return get_child_by_index(sl, 14)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return get_child_by_index(sl, 16)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return get_child_by_index(sl, 18)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return get_child_by_index(sl, 19)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return get_child_by_index(sl, 21)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return sl:FindFirstChild("Hammock")
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return get_child_by_index(sl, 20)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return get_child_by_index(sl, 13)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					local mdl = sl:FindFirstChild("Model"); if not mdl then return end
+					return mdl:FindFirstChild("Meshes/mountain")
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return get_child_by_index(sl, 15)
+				end,
+				function()
+					local sl = ws:FindFirstChild("Summer Location"); if not sl then return end
+					return sl:FindFirstChild("Palm Tree")
+				end,
+				-- Summer Location extra targets end
+				-- user additions end
+			}
+
+			for i = 1, #resolvers do
+				local ok, inst = pcall(resolvers[i])
+				if ok and typeof(inst) == "Instance" then add(inst) end
+			end
+
+			-- bots under workspace.Players (models imitating players). Remove only if not a real Player.
+			local botsFolder = ws:FindFirstChild("Players")
+			if botsFolder then
+				local ok_plr, players = pcall(function() return game:GetService("Players") end)
+				if ok_plr and players then
+					local k = botsFolder:GetChildren()
+					for i = 1, #k do
+						local m = k[i]
+						local isModel = (typeof(m) == "Instance" and m:IsA("Model"))
+						if isModel then
+							local hasHum = m:FindFirstChildOfClass("Humanoid") ~= nil
+							local isRealPlayer = players:FindFirstChild(m.Name) ~= nil
+							if hasHum and not isRealPlayer then
+								add(m)
+							end
+						end
+					end
+				end
+			end
+
+			if state then
+				for i = 1, #targets do
+					local inst = targets[i]
+					if inst.Parent ~= nil and cleartrash_state.bin[inst] == nil then
+						local ok_par, parent = pcall(function() return inst.Parent end)
+						if ok_par and parent then
+							cleartrash_state.bin[inst] = parent
+							pcall(function() inst.Parent = nil end)
+						end
+					end
+				end
+			else
+				for inst, parent in pairs(cleartrash_state.bin) do
+					pcall(function() inst.Parent = parent end)
+				end
+				cleartrash_state.bin = {}
+			end
+		end
+
+		local function cleartrash_set_enabled(on)
+			cleartrash_state.enabled = on
+			cleartrash_apply(on)
+		end
+
+		-- on-unload cleanup for ClearTrash
+		do
+			if library and library.connections and type(library.connections) == "table" then
+				table.insert(library.connections, {
+					Disconnect = function()
+						if cleartrash_state and cleartrash_state.enabled then
+							cleartrash_set_enabled(false)
+						end
+					end
+				})
+			end
+		end
+
+		-- potato mode system start
+		local potato_state = { conn = nil, prev = nil }
+		local function potato_enable()
+			if getgenv and getgenv().OPTIMIZED_GRAPHICS then return end
+			local ws = game:GetService("Workspace")
+			local lighting = game:GetService("Lighting")
+			local run = (vars and vars.run) or game:GetService("RunService")
+			local tsk = (vars and vars.task) or task
+			-- save previous graphics settings (restorable)
+			potato_state.prev = {
+				GlobalShadows = lighting.GlobalShadows,
+				FogEnd = lighting.FogEnd,
+				QualityLevel = (function()
+					local ok, lvl = pcall(function() return settings().Rendering.QualityLevel end)
+					return ok and lvl or nil
+				end)(),
+			}
+			-- assets removal
+			local assets = {
+				ws:FindFirstChild("Lights"),
+				(ws:FindFirstChild("MAP") and ws.MAP:FindFirstChild("Graffiti")) or nil,
+				(ws:FindFirstChild("MAP") and ws.MAP:FindFirstChild("Map") and ws.MAP.Map:FindFirstChild("Game-Houses")) or nil,
+			}
+			for _, asset in next, assets do if asset then pcall(function() asset:Destroy() end) end end
+			-- name-based removal in whole game
+			for _, x in next, game:GetDescendants() do
+				local n = x.Name
+				if n == 'Meshes/mountain' or n == 'print' or n == 'Image Ad Unit 2' then pcall(function() x:Destroy() end) end
+			end
+			-- workspace.Ignored cleanup
+			local ignored = ws:FindFirstChild("Ignored")
+			if ignored then
+				for _, item in next, ignored:GetChildren() do
+					local n = item.Name
+					if n == 'HouseOwn' or n == 'Folder' or n == 'HouseItemSale' or n == 'ItemsDrop' then pcall(function() item:Destroy() end) end
+				end
+			end
+			-- map cleanup
+			local mapRoot = ws:FindFirstChild("MAP")
+			if mapRoot then
+				local map = mapRoot:FindFirstChild("Map")
+				if map then
+					for _, model in next, map:GetChildren() do
+						if model:IsA('Model') then pcall(function() model:Destroy() end) end
+					end
+				end
+				local ind = mapRoot:FindFirstChild("Indestructible")
+				if ind then
+					for _, model in next, ind:GetChildren() do
+						if model:IsA('Model') then pcall(function() model:Destroy() end) end
+					end
+				end
+			end
+			-- class-based removal
+			local remove_classes = {'Accessory','Decal','ShirtGraphic','Shirt','Pants','Seat','VehicleSeat','SpecialMesh'}
+			for _, x in next, ws:GetDescendants() do
+				for _, class in next, remove_classes do
+					if x:IsA(class) then pcall(function() x:Destroy() end) end
+				end
+			end
+			-- terrain
+			local terrain = ws:FindFirstChildOfClass('Terrain')
+			if terrain then
+				terrain.WaterWaveSize = 0
+				terrain.WaterWaveSpeed = 0
+				terrain.WaterReflectance = 0
+				terrain.WaterTransparency = 0
+			end
+			-- lighting and quality
+			lighting.GlobalShadows = false
+			lighting.FogEnd = 9e9
+			pcall(function() settings().Rendering.QualityLevel = 1 end)
+			-- materials and effects
+			for _, v in next, game:GetDescendants() do
+				if v:IsA("Part") or v:IsA("UnionOperation") or v:IsA("MeshPart") or v:IsA("CornerWedgePart") or v:IsA("WedgePart") or v:IsA("TrussPart") then
+					v.Material = Enum.Material.Plastic
+					v.Reflectance = 0
+				elseif v:IsA("Decal") then
+					v.Transparency = 1
+				elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+					v.Lifetime = NumberRange.new(0)
+				end
+			end
+			for _, effect in next, lighting:GetDescendants() do
+				if effect:IsA("BlurEffect") or effect:IsA("SunRaysEffect") or effect:IsA("ColorCorrectionEffect") or effect:IsA("BloomEffect") or effect:IsA("DepthOfFieldEffect") then
+					effect.Enabled = false
+				end
+			end
+			-- live cleanup for new descendants
+			potato_state.conn = ws.DescendantAdded:Connect(function(child)
+				tsk.spawn(function()
+					if child:IsA('ForceField') or child:IsA('Sparkles') or child:IsA('Smoke') or child:IsA('Fire') then
+						local hb = (run and run.Heartbeat) or game:GetService('RunService').Heartbeat
+						hb:Wait()
+						pcall(function() child:Destroy() end)
+					end
+				end)
+			end)
+			if getgenv then getgenv().OPTIMIZED_GRAPHICS = true end
+		end
+		local function potato_disable()
+			if potato_state.conn and potato_state.conn.Connected then pcall(function() potato_state.conn:Disconnect() end) end
+			potato_state.conn = nil
+			-- restore saved graphics settings
+			local lighting = game:GetService("Lighting")
+			local prev = potato_state.prev
+			if prev then
+				pcall(function()
+					lighting.GlobalShadows = prev.GlobalShadows
+					lighting.FogEnd = prev.FogEnd
+					if prev.QualityLevel ~= nil then settings().Rendering.QualityLevel = prev.QualityLevel end
+				end)
+			end
+			if getgenv then getgenv().OPTIMIZED_GRAPHICS = nil end
+		end
+		-- potato mode system end
+
+		local cleartrash_toggle = StuffSec:toggle({
+			name = "ClearTrash",
+			flag = "ClearTrash_Toggle",
+			default = false,
+			callback = function(v)
+				cleartrash_set_enabled(v)
+				if library and library.update_dependencies then library:update_dependencies() end
+			end
+		})
+
+		-- UI: PotatoMode toggle (после ClearTrash)
+		local potato_toggle = StuffSec:toggle({
+			name = "PotatoMode",
+			flag = "PotatoMode_Toggle",
+			default = false,
+			callback = function(v)
+				if v then
+					potato_enable()
+				else
+					potato_disable()
+				end
+				if library and library.update_dependencies then library:update_dependencies() end
+			end
+		})
+
+		-- unload cleanup
+		table.insert(library.connections, {
+			Disconnect = function()
+				if (getgenv and getgenv().OPTIMIZED_GRAPHICS) then potato_disable() end
+			end
+		})
+		-- clear trash system end
+
+		end
+		-- stuff (chat spammer) system end
 
  -- misc system end
 end
