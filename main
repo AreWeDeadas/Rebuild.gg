@@ -4906,6 +4906,7 @@ do
 				if library and library.update_dependencies then library:update_dependencies() end
 				stop_speedhack()
 			end)
+		end
 
 		-- flyhack system start
 		-- используем существующую секцию Movement (MovementSec) для UI
@@ -5109,21 +5110,311 @@ do
 				stop_flyhack()
 			end)
 		end
-		-- flyhack system end
-	end
-	end
-	-- movement system end
-	end
-	-- misc system end
+-- flyhack system end
 
--- применяем тему после создания всех элементов
+-- gravity system start
+do
+	-- состояние и функции Gravity
+	local ws = (vars and vars.workspace) or workspace
+	local run = (vars and vars.run) or game:GetService("RunService")
+	local function V3(x, y, z)
+		local ctor = (vars and vars.Vector3 and vars.Vector3.new) or (Vector3 and Vector3.new)
+		return ctor and ctor(x, y, z) or nil
+	end
+	local gravity_state = {
+		enabled = false,
+		mode = "Workspace", -- Workspace | Impulse | LinearVelocity
+		value = 196.2,
+		connection = nil,
+		prop_conn = nil,
+		changed = false,
+		original = nil,
+	}
+
+	local function disconnect(sig)
+		pcall(function()
+			if sig and sig.Connected then sig:Disconnect() end
+		end)
+	end
+
+	local function set_ws_gravity(val)
+		if not ws then return end
+		gravity_state.changed = true
+		ws.Gravity = val
+		gravity_state.changed = false
+	end
+
+	local function start_gravity()
+		if not (run and ws) then return end
+		-- сохранить оригинальную гравитацию один раз
+		if gravity_state.original == nil then
+			gravity_state.original = ws.Gravity
+		end
+		-- очистить старые подключения, если есть
+		disconnect(gravity_state.connection)
+		gravity_state.connection = nil
+		disconnect(gravity_state.prop_conn)
+		gravity_state.prop_conn = nil
+
+		if gravity_state.mode == "Workspace" then
+			set_ws_gravity(gravity_state.value)
+			gravity_state.prop_conn = ws:GetPropertyChangedSignal("Gravity"):Connect(function()
+				if gravity_state.changed then return end
+				set_ws_gravity(gravity_state.value)
+			end)
+		else
+			local signal = run.PreSimulation or run.Stepped
+			gravity_state.connection = signal:Connect(function(dt)
+				if not gravity_state.enabled then return end
+				local char = lp and lp.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if not (hum and root) then return end
+				if hum.FloorMaterial == Enum.Material.Air then
+					local diff = (ws.Gravity - gravity_state.value)
+					if gravity_state.mode == "Impulse" then
+						root:ApplyImpulse(V3(0, dt * diff, 0) * root.AssemblyMass)
+					else -- LinearVelocity
+						local add = V3(0, dt * diff, 0)
+						pcall(function()
+							root.AssemblyLinearVelocity = root.AssemblyLinearVelocity + add
+						end)
+					end
+				end
+			end)
+		end
+	end
+
+	local function stop_gravity()
+		disconnect(gravity_state.connection)
+		gravity_state.connection = nil
+		disconnect(gravity_state.prop_conn)
+		gravity_state.prop_conn = nil
+		-- всегда восстанавливаем исходную гравитацию при выключении
+		if gravity_state.original ~= nil and ws then
+			pcall(function() ws.Gravity = gravity_state.original end)
+		end
+	end
+
+	-- UI элементы Gravity
+	local gravity_toggle = MovementSec:toggle({
+		name = "Gravity",
+		flag = "Gravity_Toggle",
+		default = false,
+		callback = function(val)
+			gravity_state.enabled = val
+			if val then start_gravity() else stop_gravity() end
+		end
+	})
+
+	local gravity_dep = MovementSec:dependency_box()
+	gravity_dep:setup_dependencies({ { gravity_toggle, true } })
+
+	gravity_dep:dropdown({
+		name = "Mode",
+		flag = "Gravity_Mode",
+		items = { "Workspace", "Impulse", "LinearVelocity" },
+		default = "Workspace",
+		callback = function(v)
+			gravity_state.mode = v
+			if gravity_state.enabled then
+				stop_gravity()
+				start_gravity()
+			end
+		end
+	})
+
+	gravity_dep:slider({
+		name = "Grv",
+		flag = "Gravity_Value",
+		min = 0,
+		max = 400,
+		default = 196.2,
+		decimals = 1,
+		callback = function(val)
+			gravity_state.value = val
+			if gravity_state.enabled and gravity_state.mode == "Workspace" then
+				set_ws_gravity(gravity_state.value)
+			end
+		end
+	})
+end
+  -- gravity system end
+  
+ 	-- no slow system start
+ 	do
+ 		local noslow_state = {
+			enabled = false,
+			connection = nil,
+			min = 16,
+		}
+ 		
+ 		local noslow_toggle = MovementSec:toggle({
+			name = "NoSlow",
+			flag = "NoSlow_Toggle",
+			default = false,
+			callback = function(val)
+				noslow_state.enabled = val
+				if val then
+					local rs = (vars and vars.rs) or game:GetService("RunService")
+					-- подключаемся, если ещё не подключены
+					if not (noslow_state.connection and noslow_state.connection.Connected) then
+						noslow_state.connection = rs.Heartbeat:Connect(function()
+							-- nil-проверки: lp/char/hum/root
+							local char = lp and lp.Character
+							if not char then return end
+							local hum = char:FindFirstChildOfClass("Humanoid")
+							if not hum then return end
+							local root = hum.RootPart or char:FindFirstChild("HumanoidRootPart")
+							if not root then return end
+							-- только когда есть направление движения
+							local dir = hum.MoveDirection
+							if dir.Magnitude > 0 then
+								local vel = root.AssemblyLinearVelocity
+								local horizMag = (Vector3.new(vel.X, 0, vel.Z)).Magnitude
+								if horizMag + 1e-3 < noslow_state.min then
+									local u = dir.Unit
+									root.AssemblyLinearVelocity = Vector3.new(u.X * noslow_state.min, vel.Y, u.Z * noslow_state.min)
+								end
+							end
+						end)
+					end
+				else
+					-- выключение: корректная очистка
+					if noslow_state.connection then
+						pcall(function()
+							noslow_state.connection:Disconnect()
+						end)
+						noslow_state.connection = nil
+					end
+				end
+			end
+		})
+	end
+	-- no jump cooldown system start
+	do
+		local nojump_state = {
+			enabled = false,
+			hooked = false,
+			old = nil,
+			conn = nil,
+			baselineJP = nil,
+			baselineJH = nil,
+		}
+
+		local function ensure_loaded()
+			-- auto-exec friendly wait style
+			local ok, loaded = pcall(function()
+				return game and game.IsLoaded and (game.IsLoaded(game) or game:IsLoaded())
+			end)
+			if not ok or not loaded then
+				pcall(function()
+					if game and game.Loaded then
+						if game.Loaded.Wait then game.Loaded.Wait(game.Loaded) else game.Loaded:Wait() end
+					end
+				end)
+			end
+		end
+
+		local function install_hook_once()
+			if nojump_state.hooked then return end
+			if type(hookmetamethod) ~= "function" then return end
+			-- cache IsA for speed and compat
+			local IsA = (game and game.IsA) or function(obj, cls)
+				local ok, res = pcall(function()
+					return obj and obj.IsA and obj:IsA(cls)
+				end)
+				return ok and res or false
+			end
+			local raw_newindex
+			local function handler(self, Index, Value)
+				local external = false
+				if type(checkcaller) == "function" then external = not checkcaller() end
+				if nojump_state.enabled and external and Index == "JumpPower" and IsA(self, "Humanoid") then
+					return
+				end
+				-- защитимся от редкого ре-энтри до присвоения orig
+				if not raw_newindex then return end
+				return raw_newindex(self, Index, Value)
+			end
+			local wrapper = (type(newcclosure) == "function") and newcclosure(handler) or handler
+			local ok, orig = pcall(function()
+				return hookmetamethod(game, "__newindex", wrapper)
+			end)
+			if ok and orig then
+				raw_newindex = orig
+				nojump_state.old = orig
+				nojump_state.hooked = true
+			end
+		end
+
+		local function start_fallback()
+			-- Фолбэк для executors без hookmetamethod/newcclosure
+			local rs = (vars and vars.rs) or game:GetService("RunService")
+			if nojump_state.conn and nojump_state.conn.Connected then return end
+			nojump_state.conn = rs.Heartbeat:Connect(function()
+				local char = lp and lp.Character
+				if not char then return end
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if not hum then return end
+				-- фиксируем базовые значения один раз
+				if not nojump_state.baselineJP then nojump_state.baselineJP = tonumber(hum.JumpPower) or 50 end
+				if not nojump_state.baselineJH then nojump_state.baselineJH = tonumber(hum.JumpHeight) or 7.2 end
+				-- если игра обнуляет/занижает, мгновенно восстанавливаем
+				local okp = pcall(function()
+					if hum.UseJumpPower ~= false then
+						if hum.JumpPower < nojump_state.baselineJP then hum.JumpPower = nojump_state.baselineJP end
+					else
+						if hum.JumpHeight < nojump_state.baselineJH then hum.JumpHeight = nojump_state.baselineJH end
+					end
+				end)
+				if not okp then return end
+			end)
+		end
+
+		local function stop_fallback()
+			if nojump_state.conn then
+				pcall(function() nojump_state.conn:Disconnect() end)
+				nojump_state.conn = nil
+			end
+		end
+
+		local nojump_toggle = MovementSec:toggle({
+			name = "NoJumpCooldown",
+			flag = "NoJumpCooldown_Toggle",
+			default = false,
+			callback = function(val)
+				nojump_state.enabled = val
+				if val then
+					ensure_loaded()
+					install_hook_once()
+					if not nojump_state.hooked then
+						start_fallback()
+					else
+						stop_fallback()
+					end
+				else
+					stop_fallback()
+				end
+			end
+		})
+	end
+	-- no jump cooldown system end
+
+ 
+  -- movement system end
+end
+ -- misc system end
+end
+
+ -- применяем тему после создания всех элементов
 for index, value in next, themes.preset do
     pcall(function()
         library:update_theme(index, value)
     end)
 end
 
--- показываем уведомление о загрузке скрипта
+ -- показываем уведомление о загрузке скрипта
 library:notification({
     text = "hello, client is loaded, onyx hub = zalupa ebanaya",
     time = 10
