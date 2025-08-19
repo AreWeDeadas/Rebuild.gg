@@ -6470,6 +6470,42 @@ function library:playerlist(options)
 	cfg.labels.display = self:label({ name = "Display Name: ??" })
 	cfg.labels.uid = self:label({ name = "User Id: ??" })
 
+	-- playerlist actions start
+	local _btnh = self:button_holder({})
+	self:button({
+		name = "PriAll",
+		callback = function()
+			for _, _plr in next, players:GetPlayers() do
+				local _name = tostring(_plr)
+				if _name ~= lp.Name then
+					local _path = library.playerlist_data[_name]
+					if _path then
+						_path.priority_text.Text = "Priority"
+						_path.priority_text.TextColor3 = patterns["Priority"]
+						_path.priority = "Priority"
+					end
+				end
+			end
+		end,
+	})
+	self:button({
+		name = "NeuAll",
+		callback = function()
+			for _, _plr in next, players:GetPlayers() do
+				local _name = tostring(_plr)
+				if _name ~= lp.Name then
+					local _path = library.playerlist_data[_name]
+					if _path then
+						_path.priority_text.Text = "Neutral"
+						_path.priority_text.TextColor3 = patterns["Neutral"]
+						_path.priority = "Neutral"
+					end
+				end
+			end
+		end,
+	})
+	-- playerlist actions end
+
 	return setmetatable(cfg, library)
 end
 
