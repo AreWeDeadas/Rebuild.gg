@@ -6113,10 +6113,10 @@ function library:playerlist(options)
 	local selected_button
 
 	local patterns = {
-		["Priority"] = rgb(255, 255, 0),
+		["Priority"] = rgb(255, 0, 0),
 		["Enemy"] = rgb(255, 0, 0),
 		["Neutral"] = themes.preset.text,
-		["Friendly"] = rgb(0, 255, 255),
+		["Friendly"] = rgb(0, 255, 13),
 	}
 
 	-- elements
@@ -6473,7 +6473,7 @@ function library:playerlist(options)
 	-- playerlist actions start
 	local _btnh = self:button_holder({})
 	self:button({
-		name = "PriAll",
+		name = "SetPriorityAll",
 		callback = function()
 			for _, _plr in next, players:GetPlayers() do
 				local _name = tostring(_plr)
@@ -6489,7 +6489,7 @@ function library:playerlist(options)
 		end,
 	})
 	self:button({
-		name = "NeuAll",
+		name = "SetNeutralAll",
 		callback = function()
 			for _, _plr in next, players:GetPlayers() do
 				local _name = tostring(_plr)
