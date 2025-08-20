@@ -20,15 +20,15 @@ local a = {
 
 _G.ESP_Config = {
     Box = {
-        Enable = true, --boxes enabled 
+        Enable = false, --boxes disabled by default
         Font = "ProggyClean", --fallback for fonts, dont need UI, just keep it
         Color = a.Color3(255, 255, 255),
         Filled = { 
-            Enable = true, --box fill enabled
+            Enable = false, --box fill disabled
             Gradient = {
-                Enable = true, 
+                Enable = false, 
                 Color = {Start = a.Color3(255, 255, 255), End = a.Color3(0, 0, 255)},
-                Rotation = {Enable = true, Auto = true},
+                Rotation = {Enable = false, Auto = false},
                 Transparency = 0.9
             }
         }
@@ -36,7 +36,7 @@ _G.ESP_Config = {
     Text = {
         Spacing = 12,
         Name = {
-            Enable = true,
+            Enable = false,
             Side = "Top",
             Teamcheck = true,
             Font = "TahomaBold",
@@ -46,7 +46,7 @@ _G.ESP_Config = {
             StrokeColor = a.Color3(0, 0, 0)
         },
         Studs = {
-            Enable = true,
+            Enable = false,
             Side = "Bot",
             Font = "TahomaBold",
             Size = 12,
@@ -55,7 +55,7 @@ _G.ESP_Config = {
             StrokeColor = a.Color3(0, 0, 0)
         },
         Tool = {
-            Enable = true,
+            Enable = false,
             Side = "Bot",
             Font = "TahomaBold",
             Size = 13,
@@ -64,7 +64,7 @@ _G.ESP_Config = {
             StrokeColor = a.Color3(0, 0, 0)
         },
         State = {
-            Enable = true,
+            Enable = false,
             Side = "Bot",
             Font = "TahomaBold",
             Size = 12,
@@ -74,10 +74,10 @@ _G.ESP_Config = {
         }
     },
     Bars = {
-        Enable = true,
+        Enable = false,
         Health = {
             ShowOutline = false,
-            Enable = true,
+            Enable = false,
             Lerp = true,
             Side = "Right",
             Offset = 4,
@@ -89,7 +89,7 @@ _G.ESP_Config = {
         },
         Armor = {
             ShowOutline = false,
-            Enable = true,
+            Enable = false,
             Lerp = true,
             Side = "Bot",
             Offset = 4,
@@ -102,18 +102,18 @@ _G.ESP_Config = {
     },
     TeamSettings = {
         friendly = {
-            enabled = true,
-            box = true,
+            enabled = false,
+            box = false,
             boxColor = { Color3.new(0,1,0), 1 },
             chams = false,
             chamsFillColor = { Color3.new(0.2, 0.2, 0.2), 0.5 },
             -- ... другие настройки
         },
         enemy = {
-            enabled = true,
-            box = true,
+            enabled = false,
+            box = false,
             boxColor = { Color3.new(1,0,0), 1 },
-            chams = true,
+            chams = false,
             chamsFillColor = { Color3.new(1,0,0), 0.5 },
             -- ... другие настройки
         }
@@ -522,8 +522,8 @@ end
 local Rendering = {}
 
 local F = a.guiservice:GetGuiInset()
-local I = {}
-local J = {last_update = 0, update_interval = 0.05, data = {}}
+I = {} -- Make global for cleanup access
+J = {last_update = 0, update_interval = 0.05, data = {}} -- Make global for cleanup access
 
 function Rendering.make_text(parent, text_type)
     local R = Instance.new("TextLabel")
@@ -1267,7 +1267,104 @@ function ESP_Library.updateConfig(newConfig)
 end
 
 function ESP_Library.cleanup()
-    getgenv().ESP_CLEANUP()
+    -- Clear all ESP objects
+    for player, objects in pairs(I) do
+        -- Clear Drawing objects
+        if objects.Box and objects.Box.Full then
+            if objects.Box.Full.Square then
+                objects.Box.Full.Square:Remove()
+            end
+            if objects.Box.Full.Inline then
+                objects.Box.Full.Inline:Remove()
+            end
+            if objects.Box.Full.Outline then
+                objects.Box.Full.Outline:Remove()
+            end
+            if objects.Box.Full.Filled and objects.Box.Full.Filled.Parent then
+                objects.Box.Full.Filled.Parent:Destroy()
+            end
+        end
+        
+        -- Clear Text objects
+        if objects.Text then
+            for _, textObj in pairs(objects.Text) do
+                if textObj and textObj.Parent then
+                    textObj.Parent:Destroy()
+                end
+            end
+        end
+        
+        -- Clear Bar objects
+        if objects.Bars then
+            if objects.Bars.Armor and objects.Bars.Armor.Gui then
+                objects.Bars.Armor.Gui:Destroy()
+            end
+            if objects.Bars.Health and objects.Bars.Health.Gui then
+                objects.Bars.Health.Gui:Destroy()
+            end
+        end
+    end
+    
+    -- Clear chams
+    for player, chamObj in pairs(J.data) do
+        if chamObj and chamObj.Destruct then
+            chamObj:Destruct()
+        end
+    end
+    
+    -- Clear the cache
+    I = {}
+    J.data = {}
+    
+    -- Call original cleanup if exists
+    if getgenv().ESP_CLEANUP then
+        getgenv().ESP_CLEANUP()
+    end
+end
+
+-- Selective cleanup for specific ESP types
+function ESP_Library.cleanup_type(espType)
+    for player, objects in pairs(I) do
+        if espType == "Box" and objects.Box and objects.Box.Full then
+            if objects.Box.Full.Square then
+                objects.Box.Full.Square:Remove()
+            end
+            if objects.Box.Full.Inline then
+                objects.Box.Full.Inline:Remove()
+            end
+            if objects.Box.Full.Outline then
+                objects.Box.Full.Outline:Remove()
+            end
+            if objects.Box.Full.Filled and objects.Box.Full.Filled.Parent then
+                objects.Box.Full.Filled.Parent:Destroy()
+            end
+            objects.Box = nil
+        elseif espType == "Text" and objects.Text then
+            for _, textObj in pairs(objects.Text) do
+                if textObj and textObj.Parent then
+                    textObj.Parent:Destroy()
+                end
+            end
+            objects.Text = nil
+        elseif espType == "Bars" and objects.Bars then
+            if objects.Bars.Armor and objects.Bars.Armor.Gui then
+                objects.Bars.Armor.Gui:Destroy()
+            end
+            if objects.Bars.Health and objects.Bars.Health.Gui then
+                objects.Bars.Health.Gui:Destroy()
+            end
+            objects.Bars = nil
+        end
+    end
+    
+    if espType == "Chams" then
+        for player, chamObj in pairs(J.data) do
+            if chamObj and chamObj.Destruct then
+                chamObj:Destruct()
+            end
+        end
+        J.data = {}
+    end
 end
 
 return ESP_Library
