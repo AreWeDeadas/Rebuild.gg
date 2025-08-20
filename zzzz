@@ -804,6 +804,13 @@ function Rendering.update(player)
             if gui then gui.Enabled = true end
             local aD = aw == "Left" or aw == "Right"
             if aC then
+                -- update gradient colors from current config every frame
+                local c1 = (_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health and _G.ESP_Config.Bars.Health.Color1) or _G.ESP_Config.Bars.Health.Color1
+                local c2 = (_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health and _G.ESP_Config.Bars.Health.Color2) or _G.ESP_Config.Bars.Health.Color2
+                aC.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, c1),
+                    ColorSequenceKeypoint.new(1, c2)
+                })
                 aC.Rotation = aD and 90 or 0
             end
             if aD then
@@ -840,6 +847,16 @@ function Rendering.update(player)
                     end
                 end
                 local aO = aw == "Top" and ar - ax - az - aF or ar + ae.Y + ax + aF
+                -- update gradient colors from current config every frame (horizontal bar)
+                if aC then
+                    local c1 = (_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health and _G.ESP_Config.Bars.Health.Color1) or _G.ESP_Config.Bars.Health.Color1
+                    local c2 = (_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health and _G.ESP_Config.Bars.Health.Color2) or _G.ESP_Config.Bars.Health.Color2
+                    aC.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, c1),
+                        ColorSequenceKeypoint.new(1, c2)
+                    })
+                    aC.Rotation = 0
+                end
                 ak.Visible = true
                 ak.Position = a.UDim2(0, af.X + ay - 1, 0, aO - 1)
                 ak.Size = a.UDim2(0, math.floor(aL + 2), 0, az + 2)
