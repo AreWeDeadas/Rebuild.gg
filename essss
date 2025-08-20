@@ -1045,8 +1045,10 @@ function Rendering.update(player)
         local ak = ag.Bars.Armor.Outline
         local aB = ag.Bars.Armor.Frame
         local aC = ag.Bars.Armor.Gradient
+        local guiArmor = ag.Bars.Armor.Gui
         local aI = 2
         if ak and aB then
+            if guiArmor then guiArmor.Enabled = true end
             local aD = bK == "Left" or bK == "Right"
             if aC then
                 aC.Rotation = aD and 90 or 0
