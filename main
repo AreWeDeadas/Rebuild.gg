@@ -9744,353 +9744,351 @@ do
         end
     end
 end
--- esp system start
 do
-    -- Load ESP library
-    local ESP_Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/zzzz"))()
-    
-    -- Initialize ESP
-    ESP_Library.init()
-    
-    -- Create ESP UI in existing Visuals tab
-    local esp_section = v:section({name = "esp"})
-    
-    -- Box ESP toggle
-    local box_toggle = esp_section:toggle({
-        name = "BoxEsp",
-        state = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Box then
-                _G.ESP_Config.Box.Enable = state
-            end
-        end
-    })
-    -- ensure Box defaults
+    local n4 =
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/zzzz"))()
+    n4.init()
+    local n5 = v:section({name = "esp"})
+    local n6 =
+        n5:toggle(
+        {name = "BoxEsp", state = false, callback = function(state)
+                if _G.ESP_Config and _G.ESP_Config.Box then
+                    _G.ESP_Config.Box.Enable = state
+                end
+            end}
+    )
     do
         _G.ESP_Config = _G.ESP_Config or {}
         _G.ESP_Config.Box = _G.ESP_Config.Box or {}
-        local BX = _G.ESP_Config.Box
-        BX.Color = BX.Color or c("#ffffff")
+        local n7 = _G.ESP_Config.Box
+        n7.Color = n7.Color or c("#ffffff")
     end
-    -- Attach direct color picker to Box toggle (outline color)
-    box_toggle:colorpicker({
-        name = "Color",
-        flag = "esp_box_color",
-        default = ((_G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Color) or c("#ffffff")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Box then
-                _G.ESP_Config.Box.Color = color
+    n6:colorpicker(
+        {
+            name = "Color",
+            flag = "esp_box_color",
+            default = _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Color or c("#ffffff"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Box then
+                    _G.ESP_Config.Box.Color = n8
+                end
             end
-        end
-    })
-    -- Dependencies for Box
-    local box_dep = esp_section:dependency_box()
-    box_dep:setup_dependencies({{box_toggle, true}})
-    -- Filled toggle (under Box)
-    local filled_toggle = box_dep:toggle({
-        name = "Filled",
-        flag = "esp_box_filled",
-        default = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled then
-                _G.ESP_Config.Box.Filled.Enable = state
+        }
+    )
+    local n9 = n5:dependency_box()
+    n9:setup_dependencies({{n6, true}})
+    local na =
+        n9:toggle(
+        {name = "Filled", flag = "esp_box_filled", default = false, callback = function(state)
+                if _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled then
+                    _G.ESP_Config.Box.Filled.Enable = state
+                end
+            end}
+    )
+    local nb = n9:dependency_box()
+    nb:setup_dependencies({{na, true}})
+    local nc =
+        nb:toggle(
+        {name = "Gradient", flag = "esp_box_gradient", default = false, callback = function(state)
+                if
+                    _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled and
+                        _G.ESP_Config.Box.Filled.Gradient
+                 then
+                    _G.ESP_Config.Box.Filled.Gradient.Enable = state
+                end
+            end}
+    )
+    nc:colorpicker(
+        {
+            name = "Start",
+            flag = "esp_box_grad_start",
+            default = c("#ffffff"),
+            callback = function(n8)
+                if
+                    _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled and
+                        _G.ESP_Config.Box.Filled.Gradient and
+                        _G.ESP_Config.Box.Filled.Gradient.Color
+                 then
+                    _G.ESP_Config.Box.Filled.Gradient.Color.Start = n8
+                end
             end
-        end
-    })
-    -- Elements shown when Filled is ON
-    local filled_dep = box_dep:dependency_box()
-    filled_dep:setup_dependencies({{filled_toggle, true}})
-    -- Gradient toggle (under Filled)
-    local gradient_toggle = filled_dep:toggle({
-        name = "Gradient",
-        flag = "esp_box_gradient",
-        default = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled and _G.ESP_Config.Box.Filled.Gradient then
-                _G.ESP_Config.Box.Filled.Gradient.Enable = state
+        }
+    ):colorpicker(
+        {
+            name = "End",
+            flag = "esp_box_grad_end",
+            default = c("#0000ff"),
+            callback = function(n8)
+                if
+                    _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled and
+                        _G.ESP_Config.Box.Filled.Gradient and
+                        _G.ESP_Config.Box.Filled.Gradient.Color
+                 then
+                    _G.ESP_Config.Box.Filled.Gradient.Color.End = n8
+                end
             end
-        end
-    })
-    -- Attach colorpickers directly to Gradient toggle (no dependency box)
-    gradient_toggle:colorpicker({
-        name = "Start",
-        flag = "esp_box_grad_start",
-        default = c("#ffffff"),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled and _G.ESP_Config.Box.Filled.Gradient and _G.ESP_Config.Box.Filled.Gradient.Color then
-                _G.ESP_Config.Box.Filled.Gradient.Color.Start = color
+        }
+    )
+    nb:slider(
+        {
+            name = "Trs",
+            flag = "esp_box_fill_trs",
+            min = 0,
+            max = 1,
+            default = 0.9,
+            interval = 0.01,
+            callback = function(nd)
+                if _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled then
+                    _G.ESP_Config.Box.Filled.Transparency = nd
+                end
             end
-        end
-    })
-    :colorpicker({
-        name = "End",
-        flag = "esp_box_grad_end",
-        default = c("#0000ff"),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled and _G.ESP_Config.Box.Filled.Gradient and _G.ESP_Config.Box.Filled.Gradient.Color then
-                _G.ESP_Config.Box.Filled.Gradient.Color.End = color
+        }
+    )
+    local ne = nb:dependency_box()
+    ne:setup_dependencies({{nc, true}})
+    ne:toggle(
+        {
+            name = "Rotating",
+            flag = "esp_box_grad_rot",
+            default = false,
+            callback = function(state)
+                if
+                    _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled and
+                        _G.ESP_Config.Box.Filled.Gradient and
+                        _G.ESP_Config.Box.Filled.Gradient.Rotating
+                 then
+                    _G.ESP_Config.Box.Filled.Gradient.Rotating.Enable = state
+                end
             end
-        end
-    })
-
-    -- Fill transparency slider (always when Filled is ON)
-    filled_dep:slider({
-        name = "Trs",
-        flag = "esp_box_fill_trs",
-        min = 0,
-        max = 1,
-        default = 0.9,
-        interval = 0.01,
-        callback = function(value)
-            if _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled then
-                _G.ESP_Config.Box.Filled.Transparency = value
-            end
-        end
-    })
-
-    -- Rotating toggle (visible when Gradient is ON)
-    local grad_rotate_dep = filled_dep:dependency_box()
-    grad_rotate_dep:setup_dependencies({{gradient_toggle, true}})
-    grad_rotate_dep:toggle({
-        name = "Rotating",
-        flag = "esp_box_grad_rot",
-        default = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Filled and _G.ESP_Config.Box.Filled.Gradient and _G.ESP_Config.Box.Filled.Gradient.Rotating then
-                _G.ESP_Config.Box.Filled.Gradient.Rotating.Enable = state
-            end
-        end
-    })
-    
-    -- Text Name toggle  
-    local textname_toggle = esp_section:toggle({
-        name = "TextName",
-        state = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
-                _G.ESP_Config.Text.Name.Enable = state
-            end
-        end
-    })
-    -- Attach direct color pickers to the toggle (without affecting dependency target)
-    textname_toggle:colorpicker({
-        name = "Color",
-        flag = "esp_txtname_color",
-        default = c("#ffffff"),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
-                _G.ESP_Config.Text.Name.Color = color
-            end
-        end
-    })
-    textname_toggle:colorpicker({
-        name = "Stroke",
-        flag = "esp_txtname_stroke",
-        default = c("#000000"),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
-                _G.ESP_Config.Text.Name.StrokeColor = color
-            end
-        end
-    })
-    -- ensure defaults for Text.Name config are initialized and in sync with UI
+        }
+    )
+    local nf =
+        n5:toggle(
+        {name = "TextName", state = false, callback = function(state)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
+                    _G.ESP_Config.Text.Name.Enable = state
+                end
+            end}
+    )
+    nf:colorpicker(
+        {name = "Color", flag = "esp_txtname_color", default = c("#ffffff"), callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
+                    _G.ESP_Config.Text.Name.Color = n8
+                end
+            end}
+    )
+    nf:colorpicker(
+        {name = "Stroke", flag = "esp_txtname_stroke", default = c("#000000"), callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
+                    _G.ESP_Config.Text.Name.StrokeColor = n8
+                end
+            end}
+    )
     do
         _G.ESP_Config = _G.ESP_Config or {}
         local T = _G.ESP_Config
         T.Text = T.Text or {}
         T.Text.Name = T.Text.Name or {}
         local N = T.Text.Name
-        -- defaults: colors
         N.Color = N.Color or c("#ffffff")
         N.StrokeColor = N.StrokeColor or c("#000000")
-        if N.StrokeTransparency == nil then N.StrokeTransparency = 0.0 end
-        -- defaults: typography
+        if N.StrokeTransparency == nil then
+            N.StrokeTransparency = 0.0
+        end
         N.Font = N.Font or "ProggyClean"
         N.Size = N.Size or 13
-        -- defaults: layout
         N.Side = N.Side or "Top"
-        -- defaults: Roblox overhead name handling
-        N.ShowNameMethod = N.ShowNameMethod or { Enable = false, Mode = "Display" }
-        if N.ShowNameMethod.Enable == nil then N.ShowNameMethod.Enable = false end
+        N.ShowNameMethod = N.ShowNameMethod or {Enable = false, Mode = "Display"}
+        if N.ShowNameMethod.Enable == nil then
+            N.ShowNameMethod.Enable = false
+        end
         N.ShowNameMethod.Mode = N.ShowNameMethod.Mode or "Display"
     end
-    -- Originalmethod toggle (under TextName)
-    local showname_dep = esp_section:dependency_box()
-    showname_dep:setup_dependencies({{textname_toggle, true}})
-    local showname_toggle = showname_dep:toggle({
-        name = "OriginalNameMod",
-        state = false,
-        callback = function(state)
-            _G.ESP_Config = _G.ESP_Config or {}
-            _G.ESP_Config.Text = _G.ESP_Config.Text or {}
-            _G.ESP_Config.Text.Name = _G.ESP_Config.Text.Name or {}
-            _G.ESP_Config.Text.Name.ShowNameMethod = _G.ESP_Config.Text.Name.ShowNameMethod or {Mode = "Display"}
-            _G.ESP_Config.Text.Name.ShowNameMethod.Enable = state
-            if UpdateAllShowNameMethod then
-                UpdateAllShowNameMethod()
-            end
-        end
-    })
-    local showname_mode_dep = esp_section:dependency_box()
-    showname_mode_dep:setup_dependencies({{showname_toggle, true}})
-    showname_mode_dep:dropdown({
-        name = "Type",
-        flag = "esp_txtname_showname_mode",
-        items = {"Display","Original","None"},
-        default = "Display",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
-                _G.ESP_Config.Text.Name.ShowNameMethod = _G.ESP_Config.Text.Name.ShowNameMethod or {}
-                _G.ESP_Config.Text.Name.ShowNameMethod.Mode = val
+    local ng = n5:dependency_box()
+    ng:setup_dependencies({{nf, true}})
+    local nh =
+        ng:toggle(
+        {name = "OriginalNameMod", state = false, callback = function(state)
+                _G.ESP_Config = _G.ESP_Config or {}
+                _G.ESP_Config.Text = _G.ESP_Config.Text or {}
+                _G.ESP_Config.Text.Name = _G.ESP_Config.Text.Name or {}
+                _G.ESP_Config.Text.Name.ShowNameMethod = _G.ESP_Config.Text.Name.ShowNameMethod or {Mode = "Display"}
+                _G.ESP_Config.Text.Name.ShowNameMethod.Enable = state
                 if UpdateAllShowNameMethod then
                     UpdateAllShowNameMethod()
                 end
+            end}
+    )
+    local ni = n5:dependency_box()
+    ni:setup_dependencies({{nh, true}})
+    ni:dropdown(
+        {
+            name = "Type",
+            flag = "esp_txtname_showname_mode",
+            items = {"Display", "Original", "None"},
+            default = "Display",
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
+                    _G.ESP_Config.Text.Name.ShowNameMethod = _G.ESP_Config.Text.Name.ShowNameMethod or {}
+                    _G.ESP_Config.Text.Name.ShowNameMethod.Mode = nj
+                    if UpdateAllShowNameMethod then
+                        UpdateAllShowNameMethod()
+                    end
+                end
             end
-        end
-    })
-
-    -- runtime bindings for HideRobloxNames
+        }
+    )
     do
-        -- cache services safely, prefer existing cached tables if present
-        local Players = (S and S.PS) or game:GetService("Players")
-        local RunService = (S and S.RS) or game:GetService("RunService")
-        local LPref = (rawget(_G, "LP") and _G.LP) or (LP) or Players.LocalPlayer
-
-        local function get_cfg()
-            local cfg = (((_G.ESP_Config or {}).Text or {}).Name or {}).ShowNameMethod
-            if not cfg then
-                return { Enable = false, Mode = "Display" }
+        local nk = S and S.PS or game:GetService("Players")
+        local nl = S and S.RS or game:GetService("RunService")
+        local nm = rawget(_G, "LP") and _G.LP or LP or nk.LocalPlayer
+        local function nn()
+            local no = (((_G.ESP_Config or {}).Text or {}).Name or {}).ShowNameMethod
+            if not no then
+                return {Enable = false, Mode = "Display"}
             end
-            return cfg
+            return no
         end
-
-        local function _UpdateShowNameMethod(player)
-            if not player then return end
-            if player == LPref then return end
-            local char = player.Character
-            if not char then return end
-            local hum = char:FindFirstChildOfClass('Humanoid')
-            if not hum then return end
-
-            local cfg = get_cfg()
-            if not cfg.Enable then
-                -- when disabled, restore visible names (viewer distance)
-                hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
-                hum.NameOcclusion = Enum.NameOcclusion.NoOcclusion
-                hum.DisplayName = (player.DisplayName ~= '' and player.DisplayName) or player.Name
+        local function np(nq)
+            if not nq then
                 return
             end
-
-            local mode = tostring(cfg.Mode or "Display")
-            if mode == 'None' or mode == 'none' or mode == 'NONE' then
-                hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+            if nq == nm then
                 return
             end
-            hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
-            hum.NameOcclusion = Enum.NameOcclusion.NoOcclusion
-            if mode == 'Display' or mode == 'display' or mode == 'DISPLAY' then
-                hum.DisplayName = (player.DisplayName ~= '' and player.DisplayName) or player.Name
-            else -- Original
-                hum.DisplayName = player.Name
+            local nr = nq.Character
+            if not nr then
+                return
+            end
+            local ns = nr:FindFirstChildOfClass("Humanoid")
+            if not ns then
+                return
+            end
+            local no = nn()
+            if not no.Enable then
+                ns.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+                ns.NameOcclusion = Enum.NameOcclusion.NoOcclusion
+                ns.DisplayName = nq.DisplayName ~= "" and nq.DisplayName or nq.Name
+                return
+            end
+            local nt = tostring(no.Mode or "Display")
+            if nt == "None" or nt == "none" or nt == "NONE" then
+                ns.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+                return
+            end
+            ns.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+            ns.NameOcclusion = Enum.NameOcclusion.NoOcclusion
+            if nt == "Display" or nt == "display" or nt == "DISPLAY" then
+                ns.DisplayName = nq.DisplayName ~= "" and nq.DisplayName or nq.Name
+            else
+                ns.DisplayName = nq.Name
             end
         end
-
-        local function _UpdateAllShowNameMethod()
-            for _, p in ipairs(Players:GetPlayers()) do
-                _UpdateShowNameMethod(p)
+        local function nu()
+            for _, p in ipairs(nk:GetPlayers()) do
+                np(p)
             end
         end
-
-        -- expose for UI callbacks
-        UpdateAllShowNameMethod = _UpdateAllShowNameMethod
-
-        -- one-time bindings
+        UpdateAllShowNameMethod = nu
         if not _G.__ShowNameMethod_Bound then
-            Players.PlayerAdded:Connect(function(p)
-                p.CharacterAdded:Connect(function()
-                    _UpdateShowNameMethod(p)
-                end)
-            end)
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p.Character then _UpdateShowNameMethod(p) end
-                p.CharacterAdded:Connect(function()
-                    _UpdateShowNameMethod(p)
-                end)
+            nk.PlayerAdded:Connect(
+                function(p)
+                    p.CharacterAdded:Connect(
+                        function()
+                            np(p)
+                        end
+                    )
+                end
+            )
+            for _, p in ipairs(nk:GetPlayers()) do
+                if p.Character then
+                    np(p)
+                end
+                p.CharacterAdded:Connect(
+                    function()
+                        np(p)
+                    end
+                )
             end
-            RunService.Heartbeat:Connect(_UpdateAllShowNameMethod)
+            nl.Heartbeat:Connect(nu)
             _G.__ShowNameMethod_Bound = true
         end
     end
-    -- TextName settings (shown when TextName is ON)
-    local tn_dep = esp_section:dependency_box()
-    tn_dep:setup_dependencies({{textname_toggle, true}})
-    -- Font dropdown
-    tn_dep:dropdown({
-        name = "Font",
-        flag = "esp_txtname_font",
-        items = {"ProggyClean","ProggyTiny","Minecraftia","SmallestPixel7","Verdana","VerdanaBold","Tahoma","TahomaBold","CSGO","WindowsXPTahoma","Stratum2","Visitor"},
-        default = "ProggyClean",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
-                _G.ESP_Config.Text.Name.Font = val
+    local nv = n5:dependency_box()
+    nv:setup_dependencies({{nf, true}})
+    nv:dropdown(
+        {
+            name = "Font",
+            flag = "esp_txtname_font",
+            items = {
+                "ProggyClean",
+                "ProggyTiny",
+                "Minecraftia",
+                "SmallestPixel7",
+                "Verdana",
+                "VerdanaBold",
+                "Tahoma",
+                "TahomaBold",
+                "CSGO",
+                "WindowsXPTahoma",
+                "Stratum2",
+                "Visitor"
+            },
+            default = "ProggyClean",
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
+                    _G.ESP_Config.Text.Name.Font = nj
+                end
             end
-        end
-    })
-    -- Size slider
-    tn_dep:slider({
-        name = "Size",
-        flag = "esp_txtname_size",
-        min = 8,
-        max = 32,
-        default = 13,
-        interval = 1,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
-                _G.ESP_Config.Text.Name.Size = val
+        }
+    )
+    nv:slider(
+        {
+            name = "Size",
+            flag = "esp_txtname_size",
+            min = 8,
+            max = 32,
+            default = 13,
+            interval = 1,
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
+                    _G.ESP_Config.Text.Name.Size = nj
+                end
             end
-        end
-    })
-    -- Side dropdown (Top/Bot)
-    tn_dep:dropdown({
-        name = "Side",
-        flag = "esp_txtname_side",
-        items = {"Top","Bot"},
-        default = "Top",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
-                _G.ESP_Config.Text.Name.Side = val
+        }
+    )
+    nv:dropdown(
+        {name = "Side", flag = "esp_txtname_side", items = {"Top", "Bot"}, default = "Top", callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
+                    _G.ESP_Config.Text.Name.Side = nj
+                end
+            end}
+    )
+    nv:slider(
+        {
+            name = "StrokeTr",
+            flag = "esp_txtname_stroke_tr",
+            min = 0,
+            max = 1,
+            default = 0.0,
+            interval = 0.05,
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
+                    _G.ESP_Config.Text.Name.StrokeTransparency = nj
+                end
             end
-        end
-    })
-    -- Stroke transparency
-    tn_dep:slider({
-        name = "StrokeTr",
-        flag = "esp_txtname_stroke_tr",
-        min = 0,
-        max = 1,
-        default = 0.0,
-        interval = 0.05,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Name then
-                _G.ESP_Config.Text.Name.StrokeTransparency = val
-            end
-        end
-    })
-    
-    -- Health Bar toggle
-    local healthbar_toggle = esp_section:toggle({
-        name = "HealthBar", 
-        state = false,
-        callback = function(state)
-            _G.ESP_Config = _G.ESP_Config or {}
-            _G.ESP_Config.Bars = _G.ESP_Config.Bars or {}
-            _G.ESP_Config.Bars.Health = _G.ESP_Config.Bars.Health or {}
-            _G.ESP_Config.Bars.Health.Enable = state
-            -- enforce lerp always true as requested
-            _G.ESP_Config.Bars.Health.Lerp = true
-        end
-    })
-    -- init defaults for Bars.Health to sync UI/runtime
+        }
+    )
+    local nw =
+        n5:toggle(
+        {name = "HealthBar", state = false, callback = function(state)
+                _G.ESP_Config = _G.ESP_Config or {}
+                _G.ESP_Config.Bars = _G.ESP_Config.Bars or {}
+                _G.ESP_Config.Bars.Health = _G.ESP_Config.Bars.Health or {}
+                _G.ESP_Config.Bars.Health.Enable = state
+                _G.ESP_Config.Bars.Health.Lerp = true
+            end}
+    )
     do
         _G.ESP_Config = _G.ESP_Config or {}
         local C = _G.ESP_Config
@@ -10106,461 +10104,480 @@ do
         H.Side = H.Side or "Right"
         H.Lerp = true
     end
-    -- attach three color pickers to HealthBar toggle (no dependency)
-    healthbar_toggle:colorpicker({
-        name = "Clr1",
-        flag = "esp_hb_c1",
-        default = ((_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health and _G.ESP_Config.Bars.Health.Color1) or c("#00ff00")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
-                _G.ESP_Config.Bars.Health.Color1 = color
+    nw:colorpicker(
+        {
+            name = "Clr1",
+            flag = "esp_hb_c1",
+            default = _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health and
+                _G.ESP_Config.Bars.Health.Color1 or
+                c("#00ff00"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
+                    _G.ESP_Config.Bars.Health.Color1 = n8
+                end
             end
-        end
-    })
-    healthbar_toggle:colorpicker({
-        name = "Clr2",
-        flag = "esp_hb_c2",
-        default = ((_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health and _G.ESP_Config.Bars.Health.Color2) or c("#00ff00")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
-                _G.ESP_Config.Bars.Health.Color2 = color
+        }
+    )
+    nw:colorpicker(
+        {
+            name = "Clr2",
+            flag = "esp_hb_c2",
+            default = _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health and
+                _G.ESP_Config.Bars.Health.Color2 or
+                c("#00ff00"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
+                    _G.ESP_Config.Bars.Health.Color2 = n8
+                end
             end
-        end
-    })
-    -- dependency box for HealthBar settings
-    local hb_dep = esp_section:dependency_box()
-    hb_dep:setup_dependencies({{healthbar_toggle, true}})
-    hb_dep:slider({
-        name = "Width",
-        flag = "esp_hb_width",
-        min = 1,
-        max = 12,
-        default = 3,
-        interval = 1,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
-                _G.ESP_Config.Bars.Health.Width = val
+        }
+    )
+    local nx = n5:dependency_box()
+    nx:setup_dependencies({{nw, true}})
+    nx:slider(
+        {name = "Width", flag = "esp_hb_width", min = 1, max = 12, default = 3, interval = 1, callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
+                    _G.ESP_Config.Bars.Health.Width = nj
+                end
+            end}
+    )
+    nx:slider(
+        {name = "Offset", flag = "esp_hb_offset", min = 0, max = 16, default = 4, interval = 1, callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
+                    _G.ESP_Config.Bars.Health.Offset = nj
+                end
+            end}
+    )
+    nx:dropdown(
+        {
+            name = "Side",
+            flag = "esp_hb_side",
+            items = {"Bot", "Top", "Right", "Left"},
+            default = "Right",
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
+                    _G.ESP_Config.Bars.Health.Side = nj
+                end
             end
-        end
-    })
-    -- Pad is fixed at 0; no slider per requirements
-    hb_dep:slider({
-        name = "Offset",
-        flag = "esp_hb_offset",
-        min = 0,
-        max = 16,
-        default = 4,
-        interval = 1,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
-                _G.ESP_Config.Bars.Health.Offset = val
-            end
-        end
-    })
-    hb_dep:dropdown({
-        name = "Side",
-        flag = "esp_hb_side",
-        items = {"Bot","Top","Right","Left"},
-        default = "Right",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Health then
-                _G.ESP_Config.Bars.Health.Side = val
-            end
-        end
-    })
-    
-    -- Armor Bar toggle
-    local armorbar_toggle = esp_section:toggle({
-        name = "ArmorBar",
-        state = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
-                _G.ESP_Config.Bars.Armor.Enable = state
-            end
-        end
-    })
-
-    -- ensure Armor defaults in config
+        }
+    )
+    local ny =
+        n5:toggle(
+        {name = "ArmorBar", state = false, callback = function(state)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
+                    _G.ESP_Config.Bars.Armor.Enable = state
+                end
+            end}
+    )
     do
         _G.ESP_Config = _G.ESP_Config or {}
         _G.ESP_Config.Bars = _G.ESP_Config.Bars or {}
         _G.ESP_Config.Bars.Armor = _G.ESP_Config.Bars.Armor or {}
-        local AB = _G.ESP_Config.Bars.Armor
-        AB.Color1 = AB.Color1 or c("#00ff00")
-        AB.Color2 = AB.Color2 or c("#00ff00")
-        AB.Width = AB.Width == nil and 3 or AB.Width
-        AB.Offset = AB.Offset == nil and 4 or AB.Offset
-        AB.Side = AB.Side or "Right"
-        AB.Lerp = true
-        AB.Pad = 0
+        local nz = _G.ESP_Config.Bars.Armor
+        nz.Color1 = nz.Color1 or c("#00ff00")
+        nz.Color2 = nz.Color2 or c("#00ff00")
+        nz.Width = nz.Width == nil and 3 or nz.Width
+        nz.Offset = nz.Offset == nil and 4 or nz.Offset
+        nz.Side = nz.Side or "Right"
+        nz.Lerp = true
+        nz.Pad = 0
     end
-
-    -- Armor colors (attached to toggle)
-    armorbar_toggle:colorpicker({
-        name = "Clr1",
-        flag = "esp_ab_c1",
-        default = ((_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor and _G.ESP_Config.Bars.Armor.Color1) or c("#00ff00")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
-                _G.ESP_Config.Bars.Armor.Color1 = color
+    ny:colorpicker(
+        {
+            name = "Clr1",
+            flag = "esp_ab_c1",
+            default = _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor and
+                _G.ESP_Config.Bars.Armor.Color1 or
+                c("#00ff00"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
+                    _G.ESP_Config.Bars.Armor.Color1 = n8
+                end
             end
-        end
-    })
-    armorbar_toggle:colorpicker({
-        name = "Clr2",
-        flag = "esp_ab_c2",
-        default = ((_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor and _G.ESP_Config.Bars.Armor.Color2) or c("#00ff00")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
-                _G.ESP_Config.Bars.Armor.Color2 = color
+        }
+    )
+    ny:colorpicker(
+        {
+            name = "Clr2",
+            flag = "esp_ab_c2",
+            default = _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor and
+                _G.ESP_Config.Bars.Armor.Color2 or
+                c("#00ff00"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
+                    _G.ESP_Config.Bars.Armor.Color2 = n8
+                end
             end
-        end
-    })
-
-    -- dependency box for ArmorBar settings
-    local ab_dep = esp_section:dependency_box()
-    ab_dep:setup_dependencies({{armorbar_toggle, true}})
-    ab_dep:slider({
-        name = "Width",
-        flag = "esp_ab_width",
-        min = 1,
-        max = 12,
-        default = 3,
-        interval = 1,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
-                _G.ESP_Config.Bars.Armor.Width = val
+        }
+    )
+    local nA = n5:dependency_box()
+    nA:setup_dependencies({{ny, true}})
+    nA:slider(
+        {name = "Width", flag = "esp_ab_width", min = 1, max = 12, default = 3, interval = 1, callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
+                    _G.ESP_Config.Bars.Armor.Width = nj
+                end
+            end}
+    )
+    nA:slider(
+        {name = "Offset", flag = "esp_ab_offset", min = 0, max = 16, default = 4, interval = 1, callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
+                    _G.ESP_Config.Bars.Armor.Offset = nj
+                end
+            end}
+    )
+    nA:dropdown(
+        {
+            name = "Side",
+            flag = "esp_ab_side",
+            items = {"Bot", "Top", "Right", "Left"},
+            default = "Right",
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
+                    _G.ESP_Config.Bars.Armor.Side = nj
+                end
             end
-        end
-    })
-    ab_dep:slider({
-        name = "Offset",
-        flag = "esp_ab_offset",
-        min = 0,
-        max = 16,
-        default = 4,
-        interval = 1,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
-                _G.ESP_Config.Bars.Armor.Offset = val
+        }
+    )
+    local nB =
+        n5:toggle(
+        {name = "TextStuds", state = false, callback = function(state)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
+                    _G.ESP_Config.Text.Studs.Enable = state
+                end
+            end}
+    )
+    nB:colorpicker(
+        {
+            name = "Color",
+            flag = "esp_txtstuds_color",
+            default = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs and
+                _G.ESP_Config.Text.Studs.Color or
+                c("#ffffff"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
+                    _G.ESP_Config.Text.Studs.Color = n8
+                end
             end
-        end
-    })
-    ab_dep:dropdown({
-        name = "Side",
-        flag = "esp_ab_side",
-        items = {"Bot","Top","Right","Left"},
-        default = "Right",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor then
-                _G.ESP_Config.Bars.Armor.Side = val
+        }
+    )
+    nB:colorpicker(
+        {
+            name = "Stroke",
+            flag = "esp_txtstuds_stroke",
+            default = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs and
+                _G.ESP_Config.Text.Studs.StrokeColor or
+                c("#000000"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
+                    _G.ESP_Config.Text.Studs.StrokeColor = n8
+                end
             end
-        end
-    })
-
-    -- Text Studs toggle
-    local textstuds_toggle = esp_section:toggle({
-        name = "TextStuds",
-        state = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
-                _G.ESP_Config.Text.Studs.Enable = state
-            end
-        end
-    })
-    -- Attach direct color pickers to the TextStuds toggle
-    textstuds_toggle:colorpicker({
-        name = "Color",
-        flag = "esp_txtstuds_color",
-        default = ((_G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs and _G.ESP_Config.Text.Studs.Color) or c("#ffffff")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
-                _G.ESP_Config.Text.Studs.Color = color
-            end
-        end
-    })
-    textstuds_toggle:colorpicker({
-        name = "Stroke",
-        flag = "esp_txtstuds_stroke",
-        default = ((_G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs and _G.ESP_Config.Text.Studs.StrokeColor) or c("#000000")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
-                _G.ESP_Config.Text.Studs.StrokeColor = color
-            end
-        end
-    })
-    -- ensure Text.Studs defaults
+        }
+    )
     do
         _G.ESP_Config = _G.ESP_Config or {}
         _G.ESP_Config.Text = _G.ESP_Config.Text or {}
         _G.ESP_Config.Text.Studs = _G.ESP_Config.Text.Studs or {}
-        local TS = _G.ESP_Config.Text.Studs
-        TS.Font = TS.Font or "ProggyClean"
-        TS.Size = TS.Size or 13
-        TS.Side = TS.Side or "Top"
-        TS.StrokeTransparency = TS.StrokeTransparency == nil and 0.0 or TS.StrokeTransparency
-        TS.Color = TS.Color or c("#ffffff")
-        TS.StrokeColor = TS.StrokeColor or c("#000000")
+        local nC = _G.ESP_Config.Text.Studs
+        nC.Font = nC.Font or "ProggyClean"
+        nC.Size = nC.Size or 13
+        nC.Side = nC.Side or "Top"
+        nC.StrokeTransparency = nC.StrokeTransparency == nil and 0.0 or nC.StrokeTransparency
+        nC.Color = nC.Color or c("#ffffff")
+        nC.StrokeColor = nC.StrokeColor or c("#000000")
     end
-    -- TextStuds settings
-    local ts_dep = esp_section:dependency_box()
-    ts_dep:setup_dependencies({{textstuds_toggle, true}})
-    -- Font dropdown
-    ts_dep:dropdown({
-        name = "Font",
-        flag = "esp_txtstuds_font",
-        items = {"ProggyClean","ProggyTiny","Minecraftia","SmallestPixel7","Verdana","VerdanaBold","Tahoma","TahomaBold","CSGO","WindowsXPTahoma","Stratum2","Visitor"},
-        default = "ProggyClean",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
-                _G.ESP_Config.Text.Studs.Font = val
+    local nD = n5:dependency_box()
+    nD:setup_dependencies({{nB, true}})
+    nD:dropdown(
+        {
+            name = "Font",
+            flag = "esp_txtstuds_font",
+            items = {
+                "ProggyClean",
+                "ProggyTiny",
+                "Minecraftia",
+                "SmallestPixel7",
+                "Verdana",
+                "VerdanaBold",
+                "Tahoma",
+                "TahomaBold",
+                "CSGO",
+                "WindowsXPTahoma",
+                "Stratum2",
+                "Visitor"
+            },
+            default = "ProggyClean",
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
+                    _G.ESP_Config.Text.Studs.Font = nj
+                end
             end
-        end
-    })
-    -- Size slider
-    ts_dep:slider({
-        name = "Size",
-        flag = "esp_txtstuds_size",
-        min = 8,
-        max = 32,
-        default = 13,
-        interval = 1,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
-                _G.ESP_Config.Text.Studs.Size = val
+        }
+    )
+    nD:slider(
+        {
+            name = "Size",
+            flag = "esp_txtstuds_size",
+            min = 8,
+            max = 32,
+            default = 13,
+            interval = 1,
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
+                    _G.ESP_Config.Text.Studs.Size = nj
+                end
             end
-        end
-    })
-    -- Side dropdown (Top/Bot)
-    ts_dep:dropdown({
-        name = "Side",
-        flag = "esp_txtstuds_side",
-        items = {"Top","Bot"},
-        default = "Top",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
-                _G.ESP_Config.Text.Studs.Side = val
+        }
+    )
+    nD:dropdown(
+        {name = "Side", flag = "esp_txtstuds_side", items = {"Top", "Bot"}, default = "Top", callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
+                    _G.ESP_Config.Text.Studs.Side = nj
+                end
+            end}
+    )
+    nD:slider(
+        {
+            name = "StrokeTr",
+            flag = "esp_txtstuds_stroke_tr",
+            min = 0,
+            max = 1,
+            default = 0.0,
+            interval = 0.05,
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
+                    _G.ESP_Config.Text.Studs.StrokeTransparency = nj
+                end
             end
-        end
-    })
-    -- Stroke transparency
-    ts_dep:slider({
-        name = "StrokeTr",
-        flag = "esp_txtstuds_stroke_tr",
-        min = 0,
-        max = 1,
-        default = 0.0,
-        interval = 0.05,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Studs then
-                _G.ESP_Config.Text.Studs.StrokeTransparency = val
-            end
-        end
-    })
-    
-
-    -- Text State toggle
-    local textstate_toggle = esp_section:toggle({
-        name = "TextState",
-        state = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
-                _G.ESP_Config.Text.State.Enable = state
-            end
-        end
-    })
-    -- ensure Text.State defaults
+        }
+    )
+    local nE =
+        n5:toggle(
+        {name = "TextState", state = false, callback = function(state)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
+                    _G.ESP_Config.Text.State.Enable = state
+                end
+            end}
+    )
     do
         _G.ESP_Config = _G.ESP_Config or {}
         _G.ESP_Config.Text = _G.ESP_Config.Text or {}
         _G.ESP_Config.Text.State = _G.ESP_Config.Text.State or {}
-        local TSt = _G.ESP_Config.Text.State
-        TSt.Font = TSt.Font or "ProggyClean"
-        TSt.Size = TSt.Size or 13
-        TSt.Side = TSt.Side or "Top"
-        TSt.StrokeTransparency = TSt.StrokeTransparency == nil and 0.0 or TSt.StrokeTransparency
-        TSt.Color = TSt.Color or c("#ffffff")
-        TSt.StrokeColor = TSt.StrokeColor or c("#000000")
+        local nF = _G.ESP_Config.Text.State
+        nF.Font = nF.Font or "ProggyClean"
+        nF.Size = nF.Size or 13
+        nF.Side = nF.Side or "Top"
+        nF.StrokeTransparency = nF.StrokeTransparency == nil and 0.0 or nF.StrokeTransparency
+        nF.Color = nF.Color or c("#ffffff")
+        nF.StrokeColor = nF.StrokeColor or c("#000000")
     end
-    -- TextState settings
-    local tstate_dep = esp_section:dependency_box()
-    tstate_dep:setup_dependencies({{textstate_toggle, true}})
-    -- Font dropdown
-    tstate_dep:dropdown({
-        name = "Font",
-        flag = "esp_txtstate_font",
-        items = {"ProggyClean","ProggyTiny","Minecraftia","SmallestPixel7","Verdana","VerdanaBold","Tahoma","TahomaBold","CSGO","WindowsXPTahoma","Stratum2","Visitor"},
-        default = "ProggyClean",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
-                _G.ESP_Config.Text.State.Font = val
+    local nG = n5:dependency_box()
+    nG:setup_dependencies({{nE, true}})
+    nG:dropdown(
+        {
+            name = "Font",
+            flag = "esp_txtstate_font",
+            items = {
+                "ProggyClean",
+                "ProggyTiny",
+                "Minecraftia",
+                "SmallestPixel7",
+                "Verdana",
+                "VerdanaBold",
+                "Tahoma",
+                "TahomaBold",
+                "CSGO",
+                "WindowsXPTahoma",
+                "Stratum2",
+                "Visitor"
+            },
+            default = "ProggyClean",
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
+                    _G.ESP_Config.Text.State.Font = nj
+                end
             end
-        end
-    })
-    -- Size slider
-    tstate_dep:slider({
-        name = "Size",
-        flag = "esp_txtstate_size",
-        min = 8,
-        max = 32,
-        default = 13,
-        interval = 1,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
-                _G.ESP_Config.Text.State.Size = val
+        }
+    )
+    nG:slider(
+        {
+            name = "Size",
+            flag = "esp_txtstate_size",
+            min = 8,
+            max = 32,
+            default = 13,
+            interval = 1,
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
+                    _G.ESP_Config.Text.State.Size = nj
+                end
             end
-        end
-    })
-    -- Side dropdown (Top/Bot)
-    tstate_dep:dropdown({
-        name = "Side",
-        flag = "esp_txtstate_side",
-        items = {"Top","Bot"},
-        default = "Top",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
-                _G.ESP_Config.Text.State.Side = val
+        }
+    )
+    nG:dropdown(
+        {name = "Side", flag = "esp_txtstate_side", items = {"Top", "Bot"}, default = "Top", callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
+                    _G.ESP_Config.Text.State.Side = nj
+                end
+            end}
+    )
+    nG:slider(
+        {
+            name = "StrokeTr",
+            flag = "esp_txtstate_stroke_tr",
+            min = 0,
+            max = 1,
+            default = 0.0,
+            interval = 0.05,
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
+                    _G.ESP_Config.Text.State.StrokeTransparency = nj
+                end
             end
-        end
-    })
-    -- Stroke transparency
-    tstate_dep:slider({
-        name = "StrokeTr",
-        flag = "esp_txtstate_stroke_tr",
-        min = 0,
-        max = 1,
-        default = 0.0,
-        interval = 0.05,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
-                _G.ESP_Config.Text.State.StrokeTransparency = val
+        }
+    )
+    nE:colorpicker(
+        {
+            name = "Color",
+            flag = "esp_txtstate_color",
+            default = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State and
+                _G.ESP_Config.Text.State.Color or
+                c("#ffffff"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
+                    _G.ESP_Config.Text.State.Color = n8
+                end
             end
-        end
-    })
-    -- Attach direct color pickers to the TextState toggle
-    textstate_toggle:colorpicker({
-        name = "Color",
-        flag = "esp_txtstate_color",
-        default = ((_G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State and _G.ESP_Config.Text.State.Color) or c("#ffffff")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
-                _G.ESP_Config.Text.State.Color = color
+        }
+    )
+    nE:colorpicker(
+        {
+            name = "Stroke",
+            flag = "esp_txtstate_stroke",
+            default = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State and
+                _G.ESP_Config.Text.State.StrokeColor or
+                c("#000000"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
+                    _G.ESP_Config.Text.State.StrokeColor = n8
+                end
             end
-        end
-    })
-    textstate_toggle:colorpicker({
-        name = "Stroke",
-        flag = "esp_txtstate_stroke",
-        default = ((_G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State and _G.ESP_Config.Text.State.StrokeColor) or c("#000000")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.State then
-                _G.ESP_Config.Text.State.StrokeColor = color
-            end
-        end
-    })
-
-    -- Text Tool toggle
-    local texttool_toggle = esp_section:toggle({
-        name = "TextTool",
-        state = false,
-        callback = function(state)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
-                _G.ESP_Config.Text.Tool.Enable = state
-            end
-        end
-    })
-    -- ensure Text.Tool defaults
+        }
+    )
+    local nH =
+        n5:toggle(
+        {name = "TextTool", state = false, callback = function(state)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
+                    _G.ESP_Config.Text.Tool.Enable = state
+                end
+            end}
+    )
     do
         _G.ESP_Config = _G.ESP_Config or {}
         _G.ESP_Config.Text = _G.ESP_Config.Text or {}
         _G.ESP_Config.Text.Tool = _G.ESP_Config.Text.Tool or {}
-        local TT = _G.ESP_Config.Text.Tool
-        TT.Font = TT.Font or "ProggyClean"
-        TT.Size = TT.Size or 13
-        TT.Side = TT.Side or "Top"
-        TT.StrokeTransparency = TT.StrokeTransparency == nil and 0.0 or TT.StrokeTransparency
-        TT.Color = TT.Color or c("#ffffff")
-        TT.StrokeColor = TT.StrokeColor or c("#000000")
+        local nI = _G.ESP_Config.Text.Tool
+        nI.Font = nI.Font or "ProggyClean"
+        nI.Size = nI.Size or 13
+        nI.Side = nI.Side or "Top"
+        nI.StrokeTransparency = nI.StrokeTransparency == nil and 0.0 or nI.StrokeTransparency
+        nI.Color = nI.Color or c("#ffffff")
+        nI.StrokeColor = nI.StrokeColor or c("#000000")
     end
-    -- TextTool settings
-    local ttool_dep = esp_section:dependency_box()
-    ttool_dep:setup_dependencies({{texttool_toggle, true}})
-    -- Font dropdown
-    ttool_dep:dropdown({
-        name = "Font",
-        flag = "esp_txttool_font",
-        items = {"ProggyClean","ProggyTiny","Minecraftia","SmallestPixel7","Verdana","VerdanaBold","Tahoma","TahomaBold","CSGO","WindowsXPTahoma","Stratum2","Visitor"},
-        default = "ProggyClean",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
-                _G.ESP_Config.Text.Tool.Font = val
+    local nJ = n5:dependency_box()
+    nJ:setup_dependencies({{nH, true}})
+    nJ:dropdown(
+        {
+            name = "Font",
+            flag = "esp_txttool_font",
+            items = {
+                "ProggyClean",
+                "ProggyTiny",
+                "Minecraftia",
+                "SmallestPixel7",
+                "Verdana",
+                "VerdanaBold",
+                "Tahoma",
+                "TahomaBold",
+                "CSGO",
+                "WindowsXPTahoma",
+                "Stratum2",
+                "Visitor"
+            },
+            default = "ProggyClean",
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
+                    _G.ESP_Config.Text.Tool.Font = nj
+                end
             end
-        end
-    })
-    -- Size slider
-    ttool_dep:slider({
-        name = "Size",
-        flag = "esp_txttool_size",
-        min = 8,
-        max = 32,
-        default = 13,
-        interval = 1,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
-                _G.ESP_Config.Text.Tool.Size = val
+        }
+    )
+    nJ:slider(
+        {
+            name = "Size",
+            flag = "esp_txttool_size",
+            min = 8,
+            max = 32,
+            default = 13,
+            interval = 1,
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
+                    _G.ESP_Config.Text.Tool.Size = nj
+                end
             end
-        end
-    })
-    -- Side dropdown (Top/Bot)
-    ttool_dep:dropdown({
-        name = "Side",
-        flag = "esp_txttool_side",
-        items = {"Top","Bot"},
-        default = "Top",
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
-                _G.ESP_Config.Text.Tool.Side = val
+        }
+    )
+    nJ:dropdown(
+        {name = "Side", flag = "esp_txttool_side", items = {"Top", "Bot"}, default = "Top", callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
+                    _G.ESP_Config.Text.Tool.Side = nj
+                end
+            end}
+    )
+    nJ:slider(
+        {
+            name = "StrokeTr",
+            flag = "esp_txttool_stroke_tr",
+            min = 0,
+            max = 1,
+            default = 0.0,
+            interval = 0.05,
+            callback = function(nj)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
+                    _G.ESP_Config.Text.Tool.StrokeTransparency = nj
+                end
             end
-        end
-    })
-    -- Stroke transparency
-    ttool_dep:slider({
-        name = "StrokeTr",
-        flag = "esp_txttool_stroke_tr",
-        min = 0,
-        max = 1,
-        default = 0.0,
-        interval = 0.05,
-        callback = function(val)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
-                _G.ESP_Config.Text.Tool.StrokeTransparency = val
+        }
+    )
+    nH:colorpicker(
+        {
+            name = "Color",
+            flag = "esp_txttool_color",
+            default = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool and _G.ESP_Config.Text.Tool.Color or
+                c("#ffffff"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
+                    _G.ESP_Config.Text.Tool.Color = n8
+                end
             end
-        end
-    })
-    -- Attach direct color pickers to the TextTool toggle
-    texttool_toggle:colorpicker({
-        name = "Color",
-        flag = "esp_txttool_color",
-        default = ((_G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool and _G.ESP_Config.Text.Tool.Color) or c("#ffffff")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
-                _G.ESP_Config.Text.Tool.Color = color
+        }
+    )
+    nH:colorpicker(
+        {
+            name = "Stroke",
+            flag = "esp_txttool_stroke",
+            default = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool and
+                _G.ESP_Config.Text.Tool.StrokeColor or
+                c("#000000"),
+            callback = function(n8)
+                if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
+                    _G.ESP_Config.Text.Tool.StrokeColor = n8
+                end
             end
-        end
-    })
-    texttool_toggle:colorpicker({
-        name = "Stroke",
-        flag = "esp_txttool_stroke",
-        default = ((_G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool and _G.ESP_Config.Text.Tool.StrokeColor) or c("#000000")),
-        callback = function(color)
-            if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text.Tool then
-                _G.ESP_Config.Text.Tool.StrokeColor = color
-            end
-        end
-    })
+        }
+    )
 end
--- esp system end
-
 for hz, cL in next, f.preset do
     pcall(
         function()
