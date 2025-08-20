@@ -681,6 +681,17 @@ function Rendering.update(player)
         Rendering.clear_esp(player)
         return
     end
+    -- ensure boxes are hidden when disabled to avoid lingering drawings
+    if not _G.ESP_Config.Box.Enable then
+        local ai_off = ag.Box and ag.Box.Full
+        if ai_off then
+            local sq, ol, inl, fill = ai_off.Square, ai_off.Outline, ai_off.Inline, ai_off.Filled
+            if sq then sq.Visible = false end
+            if ol then ol.Visible = false end
+            if inl then inl.Visible = false end
+            if fill then fill.Visible = false end
+        end
+    end
     if _G.ESP_Config.Box.Enable then
         local ai = ag.Box.Full
         local aj, ak, al, am = ai.Square, ai.Outline, ai.Inline, ai.Filled
@@ -733,6 +744,7 @@ function Rendering.update(player)
     local ap = 3
     local aq = af.X
     local ar = af.Y - F.Y
+    -- health bar: update or hide when disabled
     if _G.ESP_Config.Bars.Health.Enable and ab then
         local as = math.clamp(ab.Health / 100, 0, 1)
         local at = ag.Bars.Health.LastHealth or as
@@ -796,6 +808,16 @@ function Rendering.update(player)
             end
         end
     end
+    -- armor bar: hide when disabled (render when enabled occurs later in flow)
+    if not (_G.ESP_Config.Bars.Armor and _G.ESP_Config.Bars.Armor.Enable) then
+        if ag.Bars and ag.Bars.Armor then
+            local ok = ag.Bars.Armor.Outline
+            local fr = ag.Bars.Armor.Frame
+            if ok then ok.Visible = false end
+            if fr then fr.Visible = false end
+        end
+    end
+
     local aP = ag.Text.Name
     local aQ = ag.Text.Tool
     local aR = ag.Text.Studs
