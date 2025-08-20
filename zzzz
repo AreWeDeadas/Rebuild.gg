@@ -1082,6 +1082,13 @@ function Rendering.update(player)
             if guiArmor then guiArmor.Enabled = true end
             local aD = bK == "Left" or bK == "Right"
             if aC then
+                -- update armor gradient colors from current config each frame
+                local c1 = (_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor and _G.ESP_Config.Bars.Armor.Color1) or _G.ESP_Config.Bars.Armor.Color1
+                local c2 = (_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor and _G.ESP_Config.Bars.Armor.Color2) or _G.ESP_Config.Bars.Armor.Color2
+                aC.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, c1),
+                    ColorSequenceKeypoint.new(1, c2)
+                })
                 aC.Rotation = aD and 90 or 0
             end
             if aD then
@@ -1126,6 +1133,16 @@ function Rendering.update(player)
                     aO = ar - bL - bN - aF
                 else
                     aO = ar + ae.Y + bL + aF
+                end
+                -- update armor gradient for horizontal bar
+                if aC then
+                    local c1 = (_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor and _G.ESP_Config.Bars.Armor.Color1) or _G.ESP_Config.Bars.Armor.Color1
+                    local c2 = (_G.ESP_Config and _G.ESP_Config.Bars and _G.ESP_Config.Bars.Armor and _G.ESP_Config.Bars.Armor.Color2) or _G.ESP_Config.Bars.Armor.Color2
+                    aC.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, c1),
+                        ColorSequenceKeypoint.new(1, c2)
+                    })
+                    aC.Rotation = 0
                 end
                 ak.Visible = true
                 ak.Position = a.UDim2(0, af.X + bM - 1, 0, aO - 1)
