@@ -25,9 +25,12 @@ _G.ESP_Config = {
         Color = a.Color3(255, 255, 255),
         Filled = { 
             Enable = false, --box fill disabled
+            Transparency = 0.5, -- default fill transparency
             Gradient = {
                 Enable = false, 
                 Color = {Start = a.Color3(255, 255, 255), End = a.Color3(0, 0, 255)},
+                Rotating = {Enable = false}, -- rotation toggle per new UI
+                -- backward compatibility fields (read-only):
                 Rotation = {Enable = false, Auto = false},
                 Transparency = 0.9
             }
@@ -719,7 +722,9 @@ function Rendering.update(player)
         if _G.ESP_Config.Box.Filled.Enable and am then
             am.Position = a.UDim2(0, af.X, 0, af.Y - F.Y)
             am.Size = a.UDim2(0, ae.X, 0, ae.Y)
-            am.BackgroundTransparency = _G.ESP_Config.Box.Filled.Gradient.Transparency or 0.5
+            am.BackgroundTransparency = (_G.ESP_Config.Box.Filled.Transparency)
+                or (_G.ESP_Config.Box.Filled.Gradient and _G.ESP_Config.Box.Filled.Gradient.Transparency)
+                or 0.5
             am.BackgroundColor3 = a.Color3(255, 255, 255)
             am.Visible = _G.ESP_Config.Box.Filled.Enable
             am.ZIndex = -9e9
@@ -733,10 +738,19 @@ function Rendering.update(player)
                         ColorSequenceKeypoint.new(1, _G.ESP_Config.Box.Filled.Gradient.Color.End)
                     }
                 )
-                an.Rotation = a.math.sin(a.tick() * 2) * 180
+                local rotating = (_G.ESP_Config.Box.Filled.Gradient.Rotating and _G.ESP_Config.Box.Filled.Gradient.Rotating.Enable)
+                    or (_G.ESP_Config.Box.Filled.Gradient.Rotation and _G.ESP_Config.Box.Filled.Gradient.Rotation.Enable)
+                if rotating then
+                    an.Rotation = a.math.sin(a.tick() * 2) * 180
+                else
+                    an.Rotation = 0
+                end
                 if not an.Parent then
                     an.Parent = am
                 end
+            else
+                local existing = am:FindFirstChild("Gradient")
+                if existing then existing:Destroy() end
             end
         elseif am then
             am.Visible = false
