@@ -6356,6 +6356,170 @@ do
             )
         end
         do
+            -- animation system start
+            local rbAnim = {
+                CurrentTrack = nil,
+                CurrentAnimator = nil,
+                StopConnection = nil,
+                CharAddedConn = nil,
+                Settings = {customAnimEnabled = false, customAnimId = "10714340543", customAnimSpeed = 1}
+            }
+            -- ensure getgenv defaults
+            if not getgenv().AnimBreakerSettings then
+                getgenv().AnimBreakerSettings = rbAnim.Settings
+            end
+            -- stop current animation
+            function rbAnim.StopAnimation()
+                if rbAnim.StopConnection then
+                    pcall(function()
+                        rbAnim.StopConnection:Disconnect()
+                    end)
+                    rbAnim.StopConnection = nil
+                end
+                if rbAnim.CurrentTrack then
+                    pcall(function()
+                        rbAnim.CurrentTrack:Stop()
+                    end)
+                    rbAnim.CurrentTrack = nil
+                end
+            end
+            -- start new animation
+            function rbAnim.StartAnimation(animId, speed)
+                rbAnim.StopAnimation()
+                local ir = B and B.Players or game:GetService("Players")
+                local r = i or ir and ir.LocalPlayer
+                local char = r and r.Character
+                if not char then
+                    return
+                end
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if not hum then
+                    return
+                end
+                rbAnim.CurrentAnimator = hum:FindFirstChildOfClass("Animator")
+                if not rbAnim.CurrentAnimator then
+                    pcall(function()
+                        local a = Instance.new("Animator")
+                        a.Parent = hum
+                        rbAnim.CurrentAnimator = a
+                    end)
+                end
+                if not rbAnim.CurrentAnimator then
+                    return
+                end
+                local anim = Instance.new("Animation")
+                anim.AnimationId = "rbxassetid://" .. tostring(animId)
+                pcall(function()
+                    rbAnim.CurrentTrack = rbAnim.CurrentAnimator:LoadAnimation(anim)
+                end)
+                if rbAnim.CurrentTrack then
+                    pcall(function()
+                        for _, track in ipairs(rbAnim.CurrentAnimator:GetPlayingAnimationTracks()) do
+                            if track ~= rbAnim.CurrentTrack then
+                                track:Stop(0)
+                            end
+                        end
+                    end)
+                    rbAnim.CurrentTrack.Looped = true
+                    rbAnim.CurrentTrack.Priority = Enum.AnimationPriority.Action
+                    rbAnim.CurrentTrack:Play()
+                    local spd = math.clamp(tonumber(speed) or 1, 0.1, 20)
+                    pcall(function()
+                        rbAnim.CurrentTrack:AdjustSpeed(spd)
+                    end)
+                    rbAnim.StopConnection = rbAnim.CurrentTrack.Stopped:Connect(function()
+                        if rbAnim.Settings.customAnimEnabled then
+                            task.delay(0.1, function()
+                                if rbAnim.Settings.customAnimEnabled then
+                                    rbAnim.StartAnimation(rbAnim.Settings.customAnimId, rbAnim.Settings.customAnimSpeed)
+                                end
+                            end)
+                        end
+                    end)
+                end
+            end
+            -- update speed
+            function rbAnim.UpdateSpeed(speed)
+                if rbAnim.CurrentTrack then
+                    local spd = math.clamp(tonumber(speed) or 1, 0.1, 20)
+                    pcall(function()
+                        rbAnim.CurrentTrack:AdjustSpeed(spd)
+                    end)
+                end
+            end
+            -- UI
+            local ca = ip:toggle({name = "CustomAnimation", flag = "customanim_enabled", default = false, callback = function(state)
+                    rbAnim.Settings.customAnimEnabled = state
+                    getgenv().AnimBreakerSettings.customAnimEnabled = state
+                    if state then
+                        rbAnim.StartAnimation(rbAnim.Settings.customAnimId, rbAnim.Settings.customAnimSpeed)
+                    else
+                        rbAnim.StopAnimation()
+                    end
+                end})
+            local cb = ip:dependency_box()
+            cb:setup_dependencies({{ca, true}})
+            cb:dropdown({
+                name = "Animation",
+                flag = "customanim_select",
+                items = {"Floss", "TakeTheL", "CaramelDancen", "ModelBreak", "Ziga", "ReverseFlash", "SpeedMirage", "DogJump"},
+                default = "Floss",
+                callback = function(val)
+                    if val == "Floss" then
+                        rbAnim.Settings.customAnimId = "10714340543"
+                    elseif val == "TakeTheL" then
+                        rbAnim.Settings.customAnimId = "117865821073911"
+                    elseif val == "CaramelDancen" then
+                        rbAnim.Settings.customAnimId = "83570358825425"
+                    elseif val == "ModelBreak" then
+                        rbAnim.Settings.customAnimId = "109873544976020"
+                    elseif val == "Ziga" then
+                        rbAnim.Settings.customAnimId = "100823802222093"
+                    elseif val == "ReverseFlash" then
+                        rbAnim.Settings.customAnimId = "73295259493176"
+                    elseif val == "SpeedMirage" then
+                        rbAnim.Settings.customAnimId = "115334992181298"
+                    elseif val == "DogJump" then
+                        rbAnim.Settings.customAnimId = "82726502516305"
+                    end
+                    getgenv().AnimBreakerSettings.customAnimId = rbAnim.Settings.customAnimId
+                    if rbAnim.Settings.customAnimEnabled then
+                        rbAnim.StartAnimation(rbAnim.Settings.customAnimId, rbAnim.Settings.customAnimSpeed)
+                    end
+                end
+            })
+            cb:slider({
+                name = "Spd",
+                flag = "customanim_speed",
+                min = 0.1,
+                max = 20,
+                default = 1,
+                interval = 0.1,
+                callback = function(v)
+                    rbAnim.Settings.customAnimSpeed = tonumber(v) or 1
+                    getgenv().AnimBreakerSettings.customAnimSpeed = rbAnim.Settings.customAnimSpeed
+                    rbAnim.UpdateSpeed(rbAnim.Settings.customAnimSpeed)
+                end
+            })
+            -- restart on respawn
+            do
+                local ir = B and B.Players or game:GetService("Players")
+                local r = i or ir and ir.LocalPlayer
+                if r and not rbAnim.CharAddedConn then
+                    rbAnim.CharAddedConn = r.CharacterAdded:Connect(function()
+                        if rbAnim.Settings.customAnimEnabled then
+                            task.delay(0.5, function()
+                                if rbAnim.Settings.customAnimEnabled then
+                                    rbAnim.StartAnimation(rbAnim.Settings.customAnimId, rbAnim.Settings.customAnimSpeed)
+                                end
+                            end)
+                        end
+                    end)
+                end
+            end
+            -- animation system end
+        end
+        do
             local jh = {map = {}}
             local function ji(H, jj, gV)
                 if not H or type(gV) ~= "function" then
@@ -7249,6 +7413,69 @@ do
                     end
                 )
             end
+            -- Slide distance override start
+            do
+                local sl = {enabled = false, distance = 100, _conn = nil, _char_added = nil, _char_removing = nil, _hbConn = nil}
+                local function isSlideBodyVelocity(bv)
+                    -- Heuristic match for Slide script BV: planar MaxForce, zero Y, initial mag ~100
+                    local mf = bv.MaxForce
+                    local v = bv.Velocity
+                    local planarMF = (math.abs(mf.X - 50000) < 1e-3) and (math.abs(mf.Z - 50000) < 1e-3) and (math.abs(mf.Y) < 1e-3)
+                    local planarVY = math.abs(v.Y) < 1e-3
+                    return planarMF and planarVY
+                end
+                local function attachChar(char)
+                    if not char then return end
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+                    if sl._conn then pcall(function() if sl._conn.Connected then sl._conn:Disconnect() end end) end
+                    sl._conn = hrp.ChildAdded:Connect(function(inst)
+                        if not sl.enabled then return end
+                        if not (inst and inst:IsA("BodyVelocity")) then return end
+                        if not isSlideBodyVelocity(inst) then return end
+                        local root = hrp
+                        local look = root.CFrame.LookVector
+                        local mag = tonumber(sl.distance) or 100
+                        pcall(function()
+                            inst.Velocity = look * mag
+                        end)
+                    end)
+                end
+                local function detach()
+                    if sl._conn then
+                        pcall(function() if sl._conn.Connected then sl._conn:Disconnect() end end)
+                        sl._conn = nil
+                    end
+                end
+                if i then
+                    if i.Character then attachChar(i.Character) end
+                    if sl._char_added then pcall(function() sl._char_added:Disconnect() end) end
+                    sl._char_added = i.CharacterAdded:Connect(function(ch)
+                        attachChar(ch)
+                    end)
+                    if sl._char_removing then pcall(function() sl._char_removing:Disconnect() end) end
+                    sl._char_removing = i.CharacterRemoving:Connect(function()
+                        detach()
+                    end)
+                end
+                local tg = jz:toggle({name = "SlideDist", flag = "SlideDist_Toggle", default = false, callback = function(state)
+                        sl.enabled = state
+                    end})
+                local bx = jz:dependency_box()
+                bx:setup_dependencies({{tg, true}})
+                bx:slider({
+                    name = "Dist",
+                    flag = "SlideDist_Value",
+                    min = 50,
+                    max = 300,
+                    default = sl.distance,
+                    interval = 5,
+                    callback = function(val)
+                        sl.distance = tonumber(val) or sl.distance
+                    end
+                })
+            end
+            -- Slide distance override end
             do
                 local ka = B and B.workspace or workspace
                 local kb = B and B.run or game:GetService("RunService")
@@ -9501,9 +9728,208 @@ do
                     l_.bin = {}
                 end
             end
+            
+            -- players/workspace junk cleaner start
+            local function safe_destroy(obj)
+                if obj then
+                    pcall(function()
+                        obj:Destroy()
+                    end)
+                end
+            end
+
+            local function hasExactlyOneDecal(inst)
+                local decals = 0
+                for _, sub in next, inst:GetDescendants() do
+                    if sub:IsA("Decal") then
+                        decals = decals + 1
+                        if decals > 1 then break end
+                    end
+                end
+                return decals == 1
+            end
+
+            local function hasAncestorNamed(inst, nameLower)
+                local wsOk, ws = pcall(function() return game:GetService("Workspace") end)
+                if not wsOk then return false end
+                local p = inst and inst.Parent
+                nameLower = tostring(nameLower)
+                while p and p ~= ws do
+                    if string.lower(tostring(p.Name)) == nameLower then
+                        return true
+                    end
+                    p = p.Parent
+                end
+                return false
+            end
+
+            local function mZ_initial()
+                local ok, ws = pcall(function()
+                        return game:GetService("Workspace")
+                    end)
+                if not ok or not ws then return end
+
+                -- Players: one-time sweep of Script that contain LocalScript
+                local plrs = ws:FindFirstChild("Players")
+                if plrs then
+                    for _, inst in next, plrs:GetDescendants() do
+                        if inst:IsA("Script") then
+                            local hasLS = inst:FindFirstChildWhichIsA("LocalScript", true)
+                            if hasLS then safe_destroy(inst) end
+                        end
+                    end
+                end
+
+                -- Workspace specific one-time removals
+                do
+                    local map = ws:FindFirstChild("MAP")
+                    map = map and map:FindFirstChild("Map") or nil
+                    if map then
+                        safe_destroy(map:FindFirstChild("Meshes/mountain"))
+                    end
+                end
+
+                do
+                    local arena = ws:FindFirstChild("PVP ARENA")
+                    local mdl = arena and arena:FindFirstChild("Model") or nil
+                    if mdl then
+                        safe_destroy(mdl:FindFirstChild("tree") or mdl:FindFirstChild("Tree"))
+                    end
+                end
+
+                -- Remove any descendant named exactly "Palm Tree"
+                for _, d in next, ws:GetDescendants() do
+                    if d and d.Name == "Palm Tree" then
+                        safe_destroy(d)
+                    end
+                end
+
+                -- Remove any instance named exactly "trash" (case-insensitive)
+                for _, d in next, ws:GetDescendants() do
+                    if d and string.lower(tostring(d.Name)) == "trash" then
+                        safe_destroy(d)
+                    end
+                end
+
+                -- Remove BasePart named "Part" with exactly one Decal descendant (but NOT under any ancestor named 'parts')
+                for _, d in next, ws:GetDescendants() do
+                    if d and d:IsA("BasePart") and d.Name == "Part" then
+                        if not hasAncestorNamed(d, "parts") and hasExactlyOneDecal(d) then
+                            safe_destroy(d)
+                        end
+                    end
+                end
+            end
+
+            local function mZ_watch()
+                l_.conns = l_.conns or {}
+                local ok, ws = pcall(function()
+                        return game:GetService("Workspace")
+                    end)
+                if not ok or not ws then return end
+
+                -- Workspace watcher: destroy by rules (name/structure)
+                local workspaceAdded = ws.DescendantAdded:Connect(function(inst)
+                    if not l_.enabled or not inst then return end
+                    -- Any instance named 'trash'
+                    if string.lower(tostring(inst.Name)) == "trash" then
+                        safe_destroy(inst)
+                        return
+                    end
+                    -- Any instance named exactly 'Palm Tree'
+                    if inst.Name == "Palm Tree" then
+                        safe_destroy(inst)
+                        return
+                    end
+                    -- BasePart named 'Part' with exactly one Decal descendant
+                    if inst:IsA("BasePart") and inst.Name == "Part" then
+                        if not hasAncestorNamed(inst, "parts") and hasExactlyOneDecal(inst) then
+                            safe_destroy(inst)
+                            return
+                        end
+                    end
+                    -- If a Decal is added under a BasePart named 'Part', re-check its parent chain
+                    if inst:IsA("Decal") then
+                        local p = inst.Parent
+                        while p and p ~= ws do
+                            if p:IsA("BasePart") then
+                                -- if parent named trash — remove parent
+                                if string.lower(tostring(p.Name)) == "trash" then
+                                    safe_destroy(p)
+                                    break
+                                end
+                                -- if parent named Part with exactly one Decal
+                                if p.Name == "Part" then
+                                    if not hasAncestorNamed(p, "parts") and hasExactlyOneDecal(p) then
+                                        safe_destroy(p)
+                                        break
+                                    end
+                                end
+                            end
+                            p = p.Parent
+                        end
+                    end
+                end)
+                table.insert(l_.conns, workspaceAdded)
+
+                -- Players watcher: on LocalScript added under any Script -> destroy that Script
+                local plrs = ws:FindFirstChild("Players")
+                if plrs then
+                    local plrsAdded = plrs.DescendantAdded:Connect(function(inst)
+                        if not l_.enabled or not inst then return end
+                        if inst:IsA("LocalScript") then
+                            local p = inst.Parent
+                            while p and p ~= plrs do
+                                if p:IsA("Script") then
+                                    safe_destroy(p)
+                                    break
+                                end
+                                p = p.Parent
+                            end
+                        end
+                    end)
+                    table.insert(l_.conns, plrsAdded)
+                end
+            end
+
+            local function mZ_cleanup()
+                if l_.conns then
+                    for i = 1, #l_.conns do
+                        local c = l_.conns[i]
+                        if c and c.Connected then pcall(function() c:Disconnect() end) end
+                    end
+                end
+                l_.conns = {}
+            end
+            -- players/workspace junk cleaner end
+
             local function mO(bj)
                 l_.enabled = bj
                 m0(bj)
+                if bj then
+                    if not l_.cleaning then
+                        l_.cleaning = true
+                        mZ_initial()
+                        mZ_watch()
+                        -- light periodic touch: re-run targeted initial every 20s to catch missed cases
+                        local mS = B and B.task or task
+                        mS.spawn(function()
+                            local waitFn = (B and B.task and B.task.wait) or task.wait
+                            local t = 0
+                            while l_.enabled do
+                                waitFn(2)
+                                t = t + 2
+                                if t >= 20 then
+                                    mZ_initial()
+                                    t = 0
+                                end
+                            end
+                            l_.cleaning = false
+                        end)
+                    end
+                else
+                    mZ_cleanup()
+                end
             end
             do
                 if a and a.connections and type(a.connections) == "table" then
