@@ -107,18 +107,12 @@ _G.ESP_Config = {
         friendly = {
             enabled = false,
             box = false,
-            boxColor = { Color3.new(0,1,0), 1 },
-            chams = false,
-            chamsFillColor = { Color3.new(0.2, 0.2, 0.2), 0.5 },
-            -- ... другие настройки
+            boxColor = { Color3.new(0,1,0), 1 }
         },
         enemy = {
             enabled = false,
             box = false,
-            boxColor = { Color3.new(1,0,0), 1 },
-            chams = false,
-            chamsFillColor = { Color3.new(1,0,0), 0.5 },
-            -- ... другие настройки
+            boxColor = { Color3.new(1,0,0), 1 }
         }
     }
 }
@@ -1240,64 +1234,17 @@ getgenv().ESP_CLEANUP = function()
     H.main = {}
 end
 
-local ChamObject = {};
-ChamObject.__index = ChamObject;
-
-function ChamObject.new(player)
-	local self = setmetatable({}, ChamObject);
-	self.player = assert(player, "Missing argument #1 (Player expected)");
-	self:Construct();
-	return self;
-end
-
-function ChamObject:Construct()
-	self.highlight = Instance.new("Highlight", Utils.getService("CoreGui"));
-	self.updateConnection = a.rs.Heartbeat:Connect(function()
-		self:Update();
-	end);
-end
-
-function ChamObject:Destruct()
-	self.updateConnection:Disconnect();
-	self.highlight:Destroy();
-
-	Utils.clear(self);
-end
-
-function ChamObject:Update()
-	local highlight = self.highlight;
-	local character = Utils.getCharacter(self.player);
-    local team_settings = _G.ESP_Config.TeamSettings[Utils.isFriendly(self.player) and "friendly" or "enemy"]
-	local enabled = team_settings.enabled and character;
-
-	highlight.Enabled = enabled and team_settings.chams;
-	if highlight.Enabled then
-		highlight.DepthMode = team_settings.chamsVisibleOnly and Enum.HighlightDepthMode.Occluded or Enum.HighlightDepthMode.AlwaysOnTop;
-		highlight.Adornee = character;
-		highlight.FillColor = team_settings.chamsFillColor[1];
-		highlight.FillTransparency = team_settings.chamsFillColor[2];
-		highlight.OutlineColor = team_settings.chamsOutlineColor[1];
-		highlight.OutlineTransparency = team_settings.chamsOutlineColor[2];
-	end
-end
-
-Core.player_chams = {}
 
 local function setup_player_esp(player)
     if not player then return end
     if player == a.localplayer then return end
 
     Rendering.render(player)
-    Core.player_chams[player] = ChamObject.new(player)
 end
 
 local function remove_player_esp(player)
     if not player then return end
     Rendering.cleanup_player_esp(player)
-    if Core.player_chams[player] then
-        Core.player_chams[player]:Destruct()
-        Core.player_chams[player] = nil
-    end
 end
 
 function Core.init()
@@ -1415,12 +1362,6 @@ function ESP_Library.cleanup()
         end
     end
     
-    -- Clear chams
-    for player, chamObj in pairs(J.data) do
-        if chamObj and chamObj.Destruct then
-            chamObj:Destruct()
-        end
-    end
     
     -- Clear the cache
     I = {}
@@ -1467,14 +1408,6 @@ function ESP_Library.cleanup_type(espType)
         end
     end
     
-    if espType == "Chams" then
-        for player, chamObj in pairs(J.data) do
-            if chamObj and chamObj.Destruct then
-                chamObj:Destruct()
-            end
-        end
-        J.data = {}
-    end
 end
 
 return ESP_Library
