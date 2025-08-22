@@ -6900,4 +6900,20 @@ end
 -- notification system end
 
 --
+-- auto-initialization start
+do
+    local _ok = pcall(function()
+        if library and type(library.load_assets) == "function" then
+            library:load_assets()
+        end
+    end)
+
+    local _ok2 = pcall(function()
+        if library and type(library.load_sounds) == "function" then
+            library:load_sounds()
+        end
+    end)
+end
+-- auto-initialization end
+
 return library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp
