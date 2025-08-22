@@ -310,7 +310,7 @@ function library:set_font(font_name)
 end
 
 -- load default font
-library:set_font("Minecraftia")
+library:set_font("WindowsXPTahoma")
 
 local config_holder
 --
