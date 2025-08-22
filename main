@@ -1,7 +1,8 @@
 loadstring(game:HttpGet("https://pastebin.com/raw/gimbTwW1"))()
 local a, b, c, d, e, f, g, h, i =
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/d1cklib"))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/AreWeDeadas/Rebuild.gg/refs/heads/main/zzzzzzzzzzv1"))()
 local j, k, l, m, n, o, p, q, r = a, b, c, d, e, f, g, h, i
+j:set_font("CSGO")
 local s =
     j:window(
     {
@@ -248,6 +249,10 @@ do
                 )
             end
         end
+        
+        -- (apply_fov moved into World block after apply_time)
+
+        
         local ab =
             O:toggle(
             {
@@ -1033,6 +1038,7 @@ do
                 end
             end
         end
+
         function C:ClearTargetInfo()
             self._target.info = nil
             C._dd.override_player = nil
@@ -1414,6 +1420,8 @@ do
         _G.DesyncLibrary = bW
     end
     local targeting_state = {current = nil}
+    -- expose to global for cross-module access (e.g., crosshair AttachToTarget)
+    pcall(function() _G.targeting_state = targeting_state end)
     do
         local bY = {}
         local bZ = {
@@ -2094,45 +2102,41 @@ do
                 local d1 = (cR * 0.2 + bP) % 1
                 return Color3.fromHSV(d1, 0.6, 1)
             end
+            -- Create maximum possible drawings once
+            local MAX_SIDES = 30 -- Maximum sides we'll ever need
             local function d2()
-                if #cM.drawings == cM.sides then
+                if #cM.drawings >= MAX_SIDES then
                     return
                 end
-                for bc, d3 in ipairs(cM.drawings) do
-                    pcall(
-                        function()
-                            if d3[1] then
-                                d3[1]:Remove()
-                            end
-                        end
-                    )
-                    pcall(
-                        function()
-                            if d3[2] then
-                                d3[2]:Remove()
-                            end
-                        end
-                    )
-                end
-                cM.drawings = {}
-                for cY = 1, cM.sides do
+                
+                -- Create all drawings once at startup
+                for cY = 1, MAX_SIDES do
                     local ba = Drawing.new("Line")
                     local d4 = Drawing.new("Triangle")
                     ba.ZIndex = 2
                     ba.Thickness = 1
+                    ba.Visible = false
                     d4.ZIndex = 1
                     d4.Filled = true
+                    d4.Visible = false
                     table.insert(cM.drawings, {ba, d4})
                 end
             end
+            
+            -- Initialize drawings on script load
+            d2()
             local function d5(cc)
-                for bc, d3 in ipairs(cM.drawings) do
-                    local ba, d4 = d3[1], d3[2]
-                    if ba then
-                        ba.Visible = cc
-                    end
-                    if d4 then
-                        d4.Visible = cc
+                -- Only show/hide the active sides
+                for bc = 1, MAX_SIDES do
+                    local d3 = cM.drawings[bc]
+                    if d3 then
+                        local ba, d4 = d3[1], d3[2]
+                        if ba then
+                            ba.Visible = cc and bc <= cM.sides
+                        end
+                        if d4 then
+                            d4.Visible = cc and bc <= cM.sides
+                        end
                     end
                 end
             end
@@ -2145,23 +2149,8 @@ do
                     )
                     cM.conn = nil
                 end
-                for bc, d3 in ipairs(cM.drawings) do
-                    pcall(
-                        function()
-                            if d3[1] then
-                                d3[1]:Remove()
-                            end
-                        end
-                    )
-                    pcall(
-                        function()
-                            if d3[2] then
-                                d3[2]:Remove()
-                            end
-                        end
-                    )
-                end
-                cM.drawings = {}
+                -- Don't remove drawings, just hide them
+                d5(false)
             end
             local d7 = {
                 CustomPalette1 = {Color3.fromRGB(255, 94, 58), Color3.fromRGB(255, 154, 0), Color3.fromRGB(255, 212, 0)},
@@ -2242,52 +2231,88 @@ do
                 end
             end
             local function db()
-                if not cM.enabled then
-                    d6()
-                    return
-                end
+                -- Always check for target, not just when enabled
                 local bU = targeting_state and targeting_state.current
                 local a3 = bU and bU.Character or nil
                 local dc = a3 and a3:FindFirstChild("Head")
                 local aA = a3 and a3:FindFirstChildOfClass("Humanoid")
-                if not (a3 and dc and aA and aA.Health > 0) then
-                    d6()
-                    return
-                end
-                d2()
-                local cn = workspace.CurrentCamera
-                local dd = tick()
-                local de = math.pi * 2
-                local bh = dc.Position + Vector3.new(0, 0.75, 0)
-                local df = bh + Vector3.new(0, cM.height, 0)
-                local dg, dh = cn:WorldToViewportPoint(dc.Position)
-                if not dh or dg.Z <= 0 then
+                
+                -- If no valid target or chinahat disabled, hide drawings
+                if not cM.enabled or not (a3 and dc and aA and aA.Health > 0) then
                     d5(false)
                     return
                 end
+                
+                local cn = workspace.CurrentCamera
+                local head_pos = dc.Position
+                
+                -- Check camera distance (like in original code)
+                local camera_distance = (cn.CFrame.Position - cn.Focus.Position).Magnitude
+                if camera_distance < 1 then
+                    d5(false)
+                    return
+                end
+                
+                -- Check if target is visible on screen
+                local screen_pos, on_screen = cn:WorldToViewportPoint(head_pos)
+                if not on_screen or screen_pos.Z <= 0 then
+                    d5(false)
+                    return
+                end
+                
+                local dd = tick()
+                local de = math.pi * 2
+                local bh = head_pos + Vector3.new(0, 0.75, 0) -- offset from head
+                local df = bh + Vector3.new(0, cM.height, 0) -- top of hat
+                
+                -- Update all sides at once (like original)
                 for cY = 1, cM.sides do
-                    local ba, d4 = cM.drawings[cY][1], cM.drawings[cY][2]
-                    local di = cY / cM.sides
-                    local dj = (cY % cM.sides + 1) / cM.sides
-                    local dk = di * de
-                    local dl = dj * de
-                    local dm = bh + Vector3.new(math.cos(dk), 0, math.sin(dk)) * cM.radius
-                    local dn = bh + Vector3.new(math.cos(dl), 0, math.sin(dl)) * cM.radius
-                    local dp = cn:WorldToViewportPoint(dm)
-                    local dq = cn:WorldToViewportPoint(dn)
-                    local dr = cn:WorldToViewportPoint(df)
-                    local ds = d8(di, dd)
-                    ba.From = Vector2.new(dp.X, dp.Y)
-                    ba.To = Vector2.new(dq.X, dq.Y)
-                    ba.Color = ds
-                    ba.Transparency = cM.line_trs
-                    ba.Visible = true
-                    d4.PointA = Vector2.new(dr.X, dr.Y)
-                    d4.PointB = ba.From
-                    d4.PointC = ba.To
-                    d4.Color = ds
-                    d4.Transparency = cM.hat_trs
-                    d4.Visible = true
+                    local d3 = cM.drawings[cY]
+                    if d3 then
+                        local ba, d4 = d3[1], d3[2]
+                        if ba and d4 then
+                            -- Calculate angles using same formula as original
+                            local last = ((cY - 1) / cM.sides) * de
+                            local next = (cY / cM.sides) * de
+                            
+                            -- Calculate world positions
+                            local lastWorld = bh + Vector3.new(math.cos(last), 0, math.sin(last)) * cM.radius
+                            local nextWorld = bh + Vector3.new(math.cos(next), 0, math.sin(next)) * cM.radius
+                            
+                            -- Convert to screen positions
+                            local lastScreen = cn:WorldToViewportPoint(lastWorld)
+                            local nextScreen = cn:WorldToViewportPoint(nextWorld)
+                            local topScreen = cn:WorldToViewportPoint(df)
+                            
+                            -- Get color for this segment
+                            local segment_progress = (cY - 1) / cM.sides
+                            local ds = d8(segment_progress, dd)
+                            
+                            -- Update line (circle base)
+                            ba.From = Vector2.new(lastScreen.X, lastScreen.Y)
+                            ba.To = Vector2.new(nextScreen.X, nextScreen.Y)
+                            ba.Color = ds
+                            ba.Transparency = cM.line_trs
+                            ba.Visible = true
+                            
+                            -- Update triangle (hat face)
+                            d4.PointA = Vector2.new(topScreen.X, topScreen.Y)
+                            d4.PointB = ba.From
+                            d4.PointC = ba.To
+                            d4.Color = ds
+                            d4.Transparency = cM.hat_trs
+                            d4.Visible = true
+                        end
+                    end
+                end
+                
+                -- Hide unused drawings
+                for cY = cM.sides + 1, MAX_SIDES do
+                    local d3 = cM.drawings[cY]
+                    if d3 then
+                        if d3[1] then d3[1].Visible = false end
+                        if d3[2] then d3[2].Visible = false end
+                    end
                 end
             end
             local dt =
@@ -2355,47 +2380,12 @@ do
                     end
                 }
             )
-            -- target china hat connection
-            local chinahat_conn = nil
-            local function update_chinahat_connection()
-                if cM.enabled then
-                    if not chinahat_conn then
-                        chinahat_conn = B.run.Heartbeat:Connect(db) -- 60 fps
-                        table.insert(a.connections, chinahat_conn)
-                    end
-                else
-                    if chinahat_conn then
-                        chinahat_conn:Disconnect()
-                        chinahat_conn = nil
-                    end
-                    d6() -- clear
-                end
-            end
-            -- hook into enabled state
-            local orig_enabled = cM.enabled
-            setmetatable(cM, {
-                __index = function(t, k)
-                    if k == "enabled" then
-                        return orig_enabled
-                    end
-                    return rawget(t, k)
-                end,
-                __newindex = function(t, k, v)
-                    if k == "enabled" then
-                        orig_enabled = v
-                        update_chinahat_connection()
-                    else
-                        rawset(t, k, v)
-                    end
-                end
-            })
-            C:OnTargetUpdate(
-                function(aD)
-                    if not aD then
-                        d6()
-                    end
-                end
-            )
+            -- palette-only UI; параметры высоты/радиуса/прозрачности фиксированы конфигом cM
+            -- target china hat connection - always running
+            local chinahat_conn = B.run.RenderStepped:Connect(db)
+            table.insert(a.connections, chinahat_conn)
+            -- No need for metatable hook since connection always runs
+            -- Clear on target change is handled in db() function
         end
         do
             local dy = {
@@ -12228,6 +12218,1484 @@ do
         })
         -- jump circles system end
     end
+    -- color correction system start
+    do
+        Config = Config or {}
+        Config.ColorCorrection = Config.ColorCorrection or {
+            Enabled = false,
+            Brightness = 0,
+            Contrast = 0,
+            Saturation = 0,
+            TintColor = Color3.fromRGB(255, 255, 255),
+        }
+        Config.Ambient = Config.Ambient or {
+            Enabled = false,
+            Color = Color3.fromRGB(255, 255, 255),
+        }
+        Config.Atmosphere = Config.Atmosphere or {
+            Enabled = false,
+            Color = Color3.fromRGB(255, 255, 255),
+            Decay = Color3.fromRGB(0, 0, 0),
+            Density = 0,
+            Offset = 0,
+            Glare = 0,
+            Haze = 0,
+        }
+        Config.Bloom = Config.Bloom or {
+            Enabled = false,
+            Intensity = 1,
+            Size = 24,
+            Threshold = 0.7,
+        }
+        Config.Textures = Config.Textures or {
+            Enabled = false,
+            Selected = "Plastic",
+        }
+        Config.Skybox = Config.Skybox or {
+            Enabled = false,
+            Selected = "Night Sky",
+        }
+        Config.Time = Config.Time or {
+            Enabled = false,
+            Hours = 12,
+            Minutes = 0,
+        }
+
+        Config.FOV = Config.FOV or {
+            Enabled = false,
+            Value = 70,
+        }
+
+        Config.AspectRatio = Config.AspectRatio or {
+            Enabled = false,
+            Horizontal = 100,
+            Vertical = 100,
+        }
+
+        Config.ThirdPerson = Config.ThirdPerson or {
+            Enabled = false,
+            X = 0,
+            Y = 0,
+            Z = 0,
+        }
+
+        Config.Crosshair = Config.Crosshair or {
+            Enabled = false,
+            Sides = 4,
+            Length = 10,
+            GapSize = 5,
+            Thickness = 2,
+            CrosshairColor = Color3.fromRGB(255, 255, 255),
+            OutlineColor = Color3.fromRGB(0, 0, 0),
+            AttachToTarget = false,
+            AlwaysRotating = false,
+            Speed = 1,
+            Pulse = false,
+            Position = "mouse",
+            UseInset = true,
+        }
+
+        local function apply_color_correction()
+            local Lighting = (game and game.GetService and game:GetService("Lighting"))
+            if not Lighting then return end
+
+            -- cleanup old typo-named effects to avoid stacking
+            for _, obj in ipairs(Lighting:GetChildren()) do
+                if obj.ClassName == "ColorCorrectionEffect" and (obj.Name == "RebuilColorCorrection") then
+                    obj:Destroy()
+                end
+            end
+
+            local EFF_NAME = "RebuildColorCorrection"
+            local cc = Config.ColorCorrection or {}
+
+            -- when disabled: remove our effect to fully revert to game's default CC
+            if not (cc.Enabled and true or false) then
+                local old = Lighting:FindFirstChild(EFF_NAME)
+                if old then old:Destroy() end
+                return
+            end
+
+            -- ensure our effect exists only when enabled
+            local eff = Lighting:FindFirstChild(EFF_NAME)
+            if not eff then
+                eff = Instance.new("ColorCorrectionEffect")
+                eff.Name = EFF_NAME
+                eff.Parent = Lighting
+            end
+
+            -- clamp to soft bounds so changes aren't too strong
+            local b = typeof(cc.Brightness) == "number" and math.clamp(cc.Brightness, -0.5, 0.5) or 0
+            local ct = typeof(cc.Contrast) == "number" and math.clamp(cc.Contrast, 0, 1) or 0
+            local s = typeof(cc.Saturation) == "number" and math.clamp(cc.Saturation, -0.5, 0.5) or 0
+            eff.Brightness = b
+            eff.Contrast = ct
+            eff.Saturation = s
+            if cc.TintColor then
+                local c = cc.TintColor
+                if typeof(c) == "table" then
+                    c = c.Color or c.Color3 or c.color
+                end
+                eff.TintColor = c
+            end
+            eff.Enabled = true
+        end
+
+        -- textures apply helpers
+        local textures_state = {
+            originals = {},
+            connections = {},
+            materials = nil,
+        }
+
+        local Players = (B and B.ps) or (game and game.GetService and game:GetService("Players"))
+        local Workspace = (game and game.GetService and game:GetService("Workspace")) or workspace
+
+        local function is_character_descendant(inst)
+            local part = inst
+            while part and part.Parent do
+                if part:IsA("Model") then
+                    local hum = part:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        local plr = Players and Players:GetPlayerFromCharacter(part)
+                        return plr ~= nil
+                    end
+                end
+                part = part.Parent
+            end
+            return false
+        end
+
+        local function ensure_material_list()
+            if textures_state.materials then return textures_state.materials end
+            local list = {}
+            for _, m in ipairs(Enum.Material:GetEnumItems()) do
+                table.insert(list, m.Name)
+            end
+            textures_state.materials = list
+            return list
+        end
+
+        local function apply_material_to_part(part)
+            if not part or not part:IsA("BasePart") then return end
+            if is_character_descendant(part) then return end
+            if textures_state.originals[part] == nil then
+                textures_state.originals[part] = part.Material
+            end
+            local sel = (Config.Textures and Config.Textures.Selected) or "Plastic"
+            local mat = Enum.Material[sel] or Enum.Material.Plastic
+            part.Material = mat
+        end
+
+        local function enable_textures()
+            if not Workspace then return end
+            -- initial pass
+            for _, d in ipairs(Workspace:GetDescendants()) do
+                if d:IsA("BasePart") then
+                    apply_material_to_part(d)
+                end
+            end
+            -- hook new parts
+            if textures_state.connections.DescAdded then
+                if typeof(textures_state.connections.DescAdded) == "RBXScriptConnection" then
+                    textures_state.connections.DescAdded:Disconnect()
+                end
+                textures_state.connections.DescAdded = nil
+            end
+            textures_state.connections.DescAdded = Workspace.DescendantAdded:Connect(function(d)
+                if d and d:IsA("BasePart") then
+                    apply_material_to_part(d)
+                end
+            end)
+        end
+
+        local function disable_textures()
+            -- disconnect
+            for k, conn in pairs(textures_state.connections) do
+                if typeof(conn) == "RBXScriptConnection" then conn:Disconnect() end
+                textures_state.connections[k] = nil
+            end
+            -- restore
+            for inst, mat in pairs(textures_state.originals) do
+                if inst and inst.Parent then
+                    pcall(function()
+                        inst.Material = mat
+                    end)
+                end
+            end
+            textures_state.originals = {}
+        end
+
+        -- skybox helpers
+        local skyboxes_map = {
+            ["Purple Nebula"] = {SkyboxBk = "rbxassetid://159454299", SkyboxDn = "rbxassetid://159454296", SkyboxFt = "rbxassetid://159454293", SkyboxLf = "rbxassetid://159454286", SkyboxRt = "rbxassetid://159454300", SkyboxUp = "rbxassetid://159454288"},
+            ["Night Sky"] = {SkyboxBk = "rbxassetid://12064107", SkyboxDn = "rbxassetid://12064152", SkyboxFt = "rbxassetid://12064121", SkyboxLf = "rbxassetid://12063984", SkyboxRt = "rbxassetid://12064115", SkyboxUp = "rbxassetid://12064131"},
+            ["Pink Daylight"] = {SkyboxBk = "rbxassetid://271042516", SkyboxDn = "rbxassetid://271077243", SkyboxFt = "rbxassetid://271042556", SkyboxLf = "rbxassetid://271042310", SkyboxRt = "rbxassetid://271042467", SkyboxUp = "rbxassetid://271077958"},
+            ["Morning Glow"] = {SkyboxBk = "rbxassetid://1417494030", SkyboxDn = "rbxassetid://1417494146", SkyboxFt = "rbxassetid://1417494253", SkyboxLf = "rbxassetid://1417494402", SkyboxRt = "rbxassetid://1417494499", SkyboxUp = "rbxassetid://1417494643"},
+            ["Setting Sun"] = {SkyboxBk = "rbxassetid://626460377", SkyboxDn = "rbxassetid://626460216", SkyboxFt = "rbxassetid://626460513", SkyboxLf = "rbxassetid://626473032", SkyboxRt = "rbxassetid://626458639", SkyboxUp = "rbxassetid://626460625"},
+            ["Cache"] = {SkyboxBk = "rbxassetid://220513302", SkyboxDn = "rbxassetid://213221473", SkyboxFt = "rbxassetid://220513328", SkyboxLf = "rbxassetid://220513318", SkyboxRt = "rbxassetid://220513279", SkyboxUp = "rbxassetid://220513345"},
+            ["Fade Blue"] = {SkyboxBk = "rbxassetid://153695414", SkyboxDn = "rbxassetid://153695352", SkyboxFt = "rbxassetid://153695452", SkyboxLf = "rbxassetid://153695320", SkyboxRt = "rbxassetid://153695383", SkyboxUp = "rbxassetid://153695471"},
+            ["Elegant Morning"] = {SkyboxBk = "rbxassetid://153767241", SkyboxDn = "rbxassetid://153767216", SkyboxFt = "rbxassetid://153767266", SkyboxLf = "rbxassetid://153767200", SkyboxRt = "rbxassetid://153767231", SkyboxUp = "rbxassetid://153767288"},
+            ["Neptune"] = {SkyboxBk = "rbxassetid://218955819", SkyboxDn = "rbxassetid://218953419", SkyboxFt = "rbxassetid://218954524", SkyboxLf = "rbxassetid://218958493", SkyboxRt = "rbxassetid://218957134", SkyboxUp = "rbxassetid://218950090"},
+            ["Redshift"] = {SkyboxBk = "rbxassetid://401664839", SkyboxDn = "rbxassetid://401664862", SkyboxFt = "rbxassetid://401664960", SkyboxLf = "rbxassetid://401664881", SkyboxRt = "rbxassetid://401664901", SkyboxUp = "rbxassetid://401664936"},
+            ["Aesthetic Night"] = {SkyboxBk = "rbxassetid://1045964490", SkyboxDn = "rbxassetid://1045964368", SkyboxFt = "rbxassetid://1045964655", SkyboxLf = "rbxassetid://1045964655", SkyboxRt = "rbxassetid://1045964655", SkyboxUp = "rbxassetid://1045962969"},
+            ["Minecraft"] = {SkyboxBk = "rbxassetid://1876545003", SkyboxDn = "rbxassetid://1876544331", SkyboxFt = "rbxassetid://1876542941", SkyboxLf = "rbxassetid://1876543392", SkyboxRt = "rbxassetid://1876543764", SkyboxUp = "rbxassetid://1876544642"},
+        }
+
+        local function ensure_skybox_list()
+            if textures_state and textures_state.s_items then return textures_state.s_items end
+            local t = {}
+            for name, _ in pairs(skyboxes_map) do table.insert(t, name) end
+            table.sort(t)
+            if textures_state then textures_state.s_items = t end
+            return t
+        end
+
+        local function apply_skybox()
+            local Lighting = (game and game.GetService and game:GetService("Lighting"))
+            if not Lighting then return end
+            local sc = Config.Skybox or {}
+            local EFF_NAME = "RebuildSky"
+            if not (sc.Enabled and true or false) then
+                local old = Lighting:FindFirstChild(EFF_NAME)
+                if old then old:Destroy() end
+                return
+            end
+            local eff = Lighting:FindFirstChild(EFF_NAME)
+            if not eff then
+                eff = Instance.new("Sky")
+                eff.Name = EFF_NAME
+                eff.Parent = Lighting
+            end
+            local sel = sc.Selected or "Night Sky"
+            local data = skyboxes_map[sel]
+            if not data then return end
+            eff.SkyboxBk = data.SkyboxBk
+            eff.SkyboxDn = data.SkyboxDn
+            eff.SkyboxFt = data.SkyboxFt
+            eff.SkyboxLf = data.SkyboxLf
+            eff.SkyboxRt = data.SkyboxRt
+            eff.SkyboxUp = data.SkyboxUp
+        end
+
+        -- time changer helper
+        local originalClockTime
+        local function apply_time()
+            local Lighting = (game and game.GetService and game:GetService("Lighting"))
+            if not Lighting then return end
+            local tc = Config.Time or {}
+            local enabled = tc.Enabled and true or false
+            if enabled then
+                if originalClockTime == nil then
+                    originalClockTime = Lighting.ClockTime
+                end
+                local h = typeof(tc.Hours) == "number" and math.clamp(tc.Hours, 0, 23) or 12
+                local m = typeof(tc.Minutes) == "number" and math.clamp(tc.Minutes, 0, 59) or 0
+                Lighting.ClockTime = h + (m / 60)
+            else
+                if originalClockTime ~= nil then
+                    Lighting.ClockTime = originalClockTime
+                    originalClockTime = nil -- reset to capture fresh baseline on next enable
+                end
+            end
+        end
+
+        -- field of view helper (Random section)
+        local originalFOV
+        local fov_conn
+        local function apply_fov()
+            local ws = Workspace or (game and game.GetService and game:GetService("Workspace")) or workspace
+            local cam = ws and ws.CurrentCamera
+            if not cam then return end
+            local fc = Config.FOV or {}
+            if fc.Enabled then
+                if originalFOV == nil then
+                    originalFOV = cam.FieldOfView
+                end
+                local v = typeof(fc.Value) == "number" and math.clamp(fc.Value, 1, 180) or 70
+                cam.FieldOfView = v
+                -- keep value against external resets
+                if fov_conn then
+                    if typeof(fov_conn) == "RBXScriptConnection" then fov_conn:Disconnect() end
+                    fov_conn = nil
+                end
+                local RS = (B and B.run)
+                if RS and RS.RenderStepped then
+                    fov_conn = RS.RenderStepped:Connect(function()
+                        cam.FieldOfView = v
+                    end)
+                end
+            else
+                if fov_conn then
+                    if typeof(fov_conn) == "RBXScriptConnection" then fov_conn:Disconnect() end
+                    fov_conn = nil
+                end
+                if originalFOV ~= nil then
+                    pcall(function()
+                        cam.FieldOfView = originalFOV
+                    end)
+                    originalFOV = nil
+                end
+            end
+        end
+
+        -- ambient apply helper
+        -- aspect ratio helper (Random section)
+        local aspect_conn
+        local function apply_aspect_ratio()
+            local ws = Workspace or (game and game.GetService and game:GetService("Workspace")) or workspace
+            local cam = ws and ws.CurrentCamera
+            if not cam then return end
+            local acfg = Config.AspectRatio or {}
+            local enabled = acfg.Enabled and true or false
+            -- cleanup prev conn
+            if aspect_conn then
+                if typeof(aspect_conn) == "RBXScriptConnection" then pcall(function() aspect_conn:Disconnect() end) end
+                aspect_conn = nil
+            end
+            if not enabled then
+                return
+            end
+            local RS = (B and B.run)
+            if RS and RS.RenderStepped then
+                aspect_conn = RS.RenderStepped:Connect(function()
+                    local hPerc = typeof(acfg.Horizontal) == "number" and acfg.Horizontal or 100
+                    local vPerc = typeof(acfg.Vertical) == "number" and acfg.Vertical or 100
+                    -- allow stretch (>100) and shrink (<100): 50%..120%
+                    local h = math.clamp(hPerc, 50, 120) / 100
+                    local v = math.clamp(vPerc, 50, 120) / 100
+                    local X, Y, Z, R00, R01, R02, R10, R11, R12, R20, R21, R22 = cam.CFrame:GetComponents()
+                    cam.CFrame = CFrame.new(
+                        X, Y, Z,
+                        R00 * h,
+                        R01 * v,
+                        R02,
+                        R10,
+                        R11 * v,
+                        R12,
+                        R20 * h,
+                        R21 * v,
+                        R22
+                    )
+                end)
+            end
+        end
+        
+        -- third person helper (Random section)
+        local third_conn
+        local function apply_third_person()
+            local ws = Workspace or (game and game.GetService and game:GetService("Workspace")) or workspace
+            local cam = ws and ws.CurrentCamera
+            if not cam then return end
+            local tcfg = Config.ThirdPerson or {}
+            -- cleanup prev conn
+            if third_conn then
+                if typeof(third_conn) == "RBXScriptConnection" then pcall(function() third_conn:Disconnect() end) end
+                third_conn = nil
+            end
+            if not (tcfg.Enabled and true or false) then
+                return
+            end
+            local RS = (B and B.run)
+            if RS and RS.RenderStepped then
+                third_conn = RS.RenderStepped:Connect(function()
+                    local x = typeof(tcfg.X) == "number" and tcfg.X or 0
+                    local y = typeof(tcfg.Y) == "number" and tcfg.Y or 0
+                    local z = typeof(tcfg.Z) == "number" and tcfg.Z or 0
+                    cam.CFrame = cam.CFrame * CFrame.new(x, y, z)
+                end)
+            end
+        end
+        
+        -- crosshair helper (Random section)
+        local crosshair_state = {
+            lines = {},
+            outlines = {},
+            connection = nil,
+            line_offsets = {},
+            spin_angle = 0,
+            cursor_size = 0,
+        }
+        
+        local function generate_crosshair_angles(num_lines)
+            crosshair_state.line_offsets = {}
+            local angle_inc = 2 * math.pi / num_lines
+            for i = 1, num_lines do
+                crosshair_state.line_offsets[i] = (i - 1) * angle_inc
+            end
+        end
+        
+        local function create_crosshair()
+            -- cleanup old lines
+            for i = 1, #crosshair_state.lines do
+                if crosshair_state.lines[i] then
+                    crosshair_state.lines[i]:Remove()
+                end
+                if crosshair_state.outlines[i] then
+                    crosshair_state.outlines[i]:Remove()
+                end
+            end
+            crosshair_state.lines = {}
+            crosshair_state.outlines = {}
+            
+            -- create crosshair lines
+            local DrawingLib = (B and B.drawing) or Drawing
+            if not DrawingLib then return end
+            
+            for i = 1, Config.Crosshair.Sides do
+                crosshair_state.lines[i] = DrawingLib.new("Line")
+                crosshair_state.lines[i].Visible = false
+                crosshair_state.lines[i].Color = Config.Crosshair.CrosshairColor
+                crosshair_state.lines[i].Thickness = Config.Crosshair.Thickness
+                crosshair_state.lines[i].ZIndex = 2
+                crosshair_state.lines[i].Transparency = 1
+                
+                crosshair_state.outlines[i] = DrawingLib.new("Line")
+                crosshair_state.outlines[i].Visible = false
+                crosshair_state.outlines[i].Color = Config.Crosshair.OutlineColor
+                crosshair_state.outlines[i].Thickness = Config.Crosshair.Thickness + 2
+                crosshair_state.outlines[i].ZIndex = 1
+                crosshair_state.outlines[i].Transparency = 1
+            end
+            
+            generate_crosshair_angles(Config.Crosshair.Sides)
+            
+        end
+        
+        local function update_crosshair()
+            if not Config.Crosshair.Enabled then
+                -- hide crosshair
+                for i = 1, #crosshair_state.lines do
+                    if crosshair_state.lines[i] then
+                        crosshair_state.lines[i].Visible = false
+                    end
+                    if crosshair_state.outlines[i] then
+                        crosshair_state.outlines[i].Visible = false
+                    end
+                end
+                return
+            end
+            
+            -- get position (mouse or screen center), always using raw mouse to avoid inset offsets
+            local UIS = (B and B.uis) or (game and game.GetService and game:GetService("UserInputService"))
+            if not UIS then return end
+            local camera = (B and B.camera) or (workspace and workspace.CurrentCamera)
+            local mouse_raw = UIS:GetMouseLocation()
+            local mouse_pos = mouse_raw
+            local mode = (Config.Crosshair and Config.Crosshair.Position) or "mouse"
+            if type(mode) == "string" then
+                mode = string.lower(mode)
+            end
+            if mode == "center" and camera and camera.ViewportSize then
+                mouse_pos = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
+            end
+            
+            -- if AttachToTarget is enabled, override position with target's 2D screen point when on-screen
+            -- works for both "center" and "mouse" modes; falls back to original mouse_pos/center if off-screen
+            if (Config.Crosshair and Config.Crosshair.AttachToTarget) and camera then
+                local ts = (_G and _G.targeting_state) or nil
+                local tgt = ts and ts.current
+                if tgt and tgt.Character then
+                    local char = tgt.Character
+                    local partName = g and g["aimbot_part"]
+                    local part = (partName and char:FindFirstChild(partName)) or (C and C.GetPreferredPart and C:GetPreferredPart(char))
+                    if part then
+                        local v3, onScreen = camera:WorldToViewportPoint(part.Position)
+                        if onScreen then
+                            mouse_pos = Vector2.new(v3.X, v3.Y)
+                        end
+                    end
+                end
+            end
+            
+            -- update rotation angle
+            if Config.Crosshair.AlwaysRotating then
+                crosshair_state.spin_angle = crosshair_state.spin_angle + math.rad((Config.Crosshair.Speed * 10) * (1/60))
+            else
+                crosshair_state.spin_angle = 0
+            end
+            
+            -- calculate crosshair properties
+            local temp_radius = Config.Crosshair.Length * 5
+            local gap = Config.Crosshair.GapSize
+            
+            -- update cursor size for pulse effect
+            crosshair_state.cursor_size = crosshair_state.cursor_size + 0.025
+            
+            local local_radius = temp_radius
+            if Config.Crosshair.Pulse then
+                local dynamic = math.cos(crosshair_state.cursor_size)
+                local_radius = temp_radius - (temp_radius / 4) * math.abs(dynamic)
+            end
+            
+            -- update crosshair lines
+            for i = 1, #crosshair_state.lines do
+                if crosshair_state.lines[i] and crosshair_state.line_offsets[i] then
+                    local angle = crosshair_state.spin_angle + crosshair_state.line_offsets[i]
+                    local direction = Vector2.new(
+                        math.cos(angle),
+                        math.sin(angle)
+                    ).Unit
+                    
+                    -- set line positions
+                    crosshair_state.lines[i].From = mouse_pos + direction * gap
+                    crosshair_state.lines[i].To = crosshair_state.lines[i].From + direction * local_radius
+                    crosshair_state.lines[i].Visible = true
+                    crosshair_state.lines[i].Color = Config.Crosshair.CrosshairColor
+                    crosshair_state.lines[i].Thickness = Config.Crosshair.Thickness
+                    
+                    -- set outline positions
+                    if crosshair_state.outlines[i] then
+                        crosshair_state.outlines[i].From = mouse_pos + direction * (gap - 1)
+                        crosshair_state.outlines[i].To = crosshair_state.lines[i].From + direction * (local_radius + 1)
+                        crosshair_state.outlines[i].Visible = true
+                        crosshair_state.outlines[i].Color = Config.Crosshair.OutlineColor
+                        crosshair_state.outlines[i].Thickness = Config.Crosshair.Thickness + 2
+                    end
+                end
+            end
+        end
+        
+        local function apply_crosshair()
+            -- cleanup prev connection
+            if crosshair_state.connection then
+                if typeof(crosshair_state.connection) == "RBXScriptConnection" then 
+                    pcall(function() crosshair_state.connection:Disconnect() end) 
+                end
+                crosshair_state.connection = nil
+            end
+            
+            if Config.Crosshair.Enabled then
+                create_crosshair()
+                local RS = (B and B.run) or (game and game.GetService and game:GetService("RunService"))
+                if RS and RS.RenderStepped then
+                    crosshair_state.connection = RS.RenderStepped:Connect(update_crosshair)
+                end
+            else
+                update_crosshair() -- call to hide
+            end
+            -- apply cursor visibility per setting
+            if apply_mouse_icon then apply_mouse_icon() end
+        end
+        
+        -- mouse cursor visibility helper for crosshair
+        local defaultMouseIcon
+        local function apply_mouse_icon()
+            local UIS = (B and B.uis) or (game and game.GetService and game:GetService("UserInputService"))
+            if not UIS then return end
+            local hc = (Config.Crosshair and Config.Crosshair.HideCursor) and true or false
+            if hc then
+                if defaultMouseIcon == nil then defaultMouseIcon = UIS.MouseIconEnabled end
+                UIS.MouseIconEnabled = false
+            else
+                if defaultMouseIcon ~= nil then
+                    UIS.MouseIconEnabled = defaultMouseIcon
+                    defaultMouseIcon = nil
+                else
+                    UIS.MouseIconEnabled = true
+                end
+            end
+        end
+        
+        -- indicators system start
+        do
+            Config.Indicators = Config.Indicators or {Enabled = false, Selected = {}}
+            Config.Indicators.ClientName = (Config.Indicators.ClientName ~= nil) and Config.Indicators.ClientName or "Rebuild.gg"
+            Config.Indicators.InfoSize = (Config.Indicators.InfoSize ~= nil) and Config.Indicators.InfoSize or 14
+            Config.Indicators.ClientSize = (Config.Indicators.ClientSize ~= nil) and Config.Indicators.ClientSize or 16
+            local indicators_state = {
+                drawings = {},
+                connection = nil,
+                last_clock = nil,
+                fps_smooth = nil,
+            }
+
+            local function get_selected()
+                local sel = (Config.Indicators and Config.Indicators.Selected) or {}
+                if type(sel) ~= "table" then return {} end
+                return sel
+            end
+
+            local function ensure_text(name)
+                local DrawingLib = (B and B.drawing) or Drawing
+                if not indicators_state.drawings[name] and DrawingLib and DrawingLib.new then
+                    local t = DrawingLib.new("Text")
+                    -- base style
+                    t.Visible = false
+                    t.Color = Color3.new(1, 1, 1)
+                    t.Center = false
+                    t.Outline = true
+                    t.OutlineColor = Color3.new(0, 0, 0)
+                    t.Transparency = 1
+                    t.Size = 13
+                    t.Font = 2
+                    -- Note: Drawing Text cannot use FontFace; using executor font for runtime rendering
+                    indicators_state.drawings[name] = t
+                end
+                return indicators_state.drawings[name]
+            end
+
+            local function hide_all()
+                for _, obj in pairs(indicators_state.drawings) do
+                    if obj then obj.Visible = false end
+                end
+            end
+
+            local function update_indicators()
+                if not (Config.Indicators and Config.Indicators.Enabled) then
+                    hide_all()
+                    return
+                end
+
+                local UIS = (B and B.uis) or (game and game.GetService and game:GetService("UserInputService"))
+                local camera = (B and B.camera) or (workspace and workspace.CurrentCamera)
+                if not UIS or not camera then
+                    hide_all()
+                    return
+                end
+
+                local mouse = UIS:GetMouseLocation()
+                local base_pos = Vector2.new(mouse.X + 12, mouse.Y + 12)
+
+                local selected = get_selected()
+                -- quick set for hiding non-selected
+                local active = {}
+                local y = 0
+
+                -- helpers
+                local Players = (B and B.ps) or (game and game.GetService and game:GetService("Players"))
+                local lp = Players and Players.LocalPlayer
+                local lchar = lp and lp.Character
+                local lhum = lchar and lchar:FindFirstChildOfClass("Humanoid")
+                local lroot = lchar and (lchar:FindFirstChild("HumanoidRootPart") or lchar:FindFirstChild("Head"))
+
+                local ts = (_G and _G.targeting_state) or nil
+                local tgt = ts and ts.current
+                local thum = (tgt and tgt.Character) and tgt.Character:FindFirstChildOfClass("Humanoid")
+                local troot = (tgt and tgt.Character) and (tgt.Character:FindFirstChild("HumanoidRootPart") or tgt.Character:FindFirstChild("Head"))
+
+                -- timing for FPS
+                local now = os.clock()
+                if indicators_state.last_clock then
+                    local dt = math.max(now - indicators_state.last_clock, 1e-6)
+                    local inst_fps = 1 / dt
+                    indicators_state.fps_smooth = indicators_state.fps_smooth and (indicators_state.fps_smooth * 0.9 + inst_fps * 0.1) or inst_fps
+                end
+                indicators_state.last_clock = now
+
+                -- header: ClientName on top if selected
+                local has_client = false
+                for _, k in ipairs(selected) do
+                    if tostring(k) == "ClientName" then has_client = true break end
+                end
+                if has_client then
+                    local id = "ClientName"
+                    active[id] = true
+                    local obj = ensure_text(id)
+                    if obj then
+                        local text_value = (Config.Indicators and Config.Indicators.ClientName) or "Rebuild.gg"
+                        obj.Size = ((Config.Indicators and Config.Indicators.ClientSize) or 16)
+                        obj.Text = text_value
+                        obj.Position = Vector2.new(base_pos.X, base_pos.Y + y)
+                        obj.Visible = true
+                        y = y + (obj.Size + 2)
+                    end
+                end
+
+                for _, key in ipairs(selected) do
+                    local id = tostring(key)
+                    if id ~= "ClientName" then
+                        active[id] = true
+                        local obj = ensure_text(id)
+                        if obj then
+                            local text_value = nil
+                            if id == "localplayerHP" then
+                            local hp = (lhum and lhum.Health) or 0
+                            text_value = ("HP %d"):format(math.floor(hp + 0.5))
+                            elseif id == "TargetHP" then
+                            local thp = (thum and thum.Health) or nil
+                            if thp then
+                                text_value = ("THP %d"):format(math.floor(thp + 0.5))
+                            end
+                            elseif id == "LocalPlayerSpeed" then
+                            local spd = (lroot and lroot.Velocity and lroot.Velocity.Magnitude) or 0
+                            text_value = ("Spd %d"):format(math.floor(spd + 0.5))
+                            elseif id == "TargetDistance" then
+                            local dist = (lroot and troot) and (lroot.Position - troot.Position).Magnitude or nil
+                            if dist then text_value = ("Dist %d"):format(math.floor(dist + 0.5)) end
+                            elseif id == "FPS" then
+                            local fpsv = indicators_state.fps_smooth and math.floor(indicators_state.fps_smooth + 0.5) or nil
+                            if fpsv then text_value = ("FPS %d"):format(fpsv) end
+                            elseif id == "Ping" then
+                            local ping_val
+                            local Stats = (B and B.stats) or (game and game.GetService and game:GetService("Stats"))
+                            if Stats and Stats.Network and Stats.Network.ServerStatsItem then
+                                local ok, res = pcall(function()
+                                    return Stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
+                                end)
+                                if ok and type(res) == "string" then
+                                    local n = res:match("(%d+)")
+                                    ping_val = tonumber(n)
+                                end
+                            end
+                            if ping_val then text_value = ("Ping %d"):format(ping_val) end
+                            elseif id == "ClockTime" then
+                            local Lighting = (game and game.GetService and game:GetService("Lighting"))
+                            if Lighting then
+                                local ct = Lighting.ClockTime or 0
+                                local h = math.floor(ct) % 24
+                                local m = math.floor(((ct - h) * 60) + 0.5) % 60
+                                text_value = ("Time %02d:%02d"):format(h, m)
+                            end
+                            end
+
+                            if text_value then
+                                obj.Size = ((Config.Indicators and Config.Indicators.InfoSize) or 14)
+                                obj.Text = text_value
+                                obj.Position = Vector2.new(base_pos.X, base_pos.Y + y)
+                                obj.Visible = true
+                                y = y + (obj.Size + 2)
+                            else
+                                obj.Visible = false
+                            end
+                        end
+                    end
+                end
+
+                -- hide any leftover unselected drawings
+                for name, obj in pairs(indicators_state.drawings) do
+                    if obj and not active[name] then
+                        obj.Visible = false
+                    end
+                end
+            end
+
+            function apply_indicators()
+                -- disconnect previous
+                if indicators_state.connection and typeof(indicators_state.connection) == "RBXScriptConnection" then
+                    pcall(function() indicators_state.connection:Disconnect() end)
+                end
+                indicators_state.connection = nil
+
+                if Config.Indicators and Config.Indicators.Enabled then
+                    local RS = (B and B.run) or (game and game.GetService and game:GetService("RunService"))
+                    if RS and RS.RenderStepped then
+                        indicators_state.connection = RS.RenderStepped:Connect(update_indicators)
+                    end
+                else
+                    update_indicators()
+                end
+            end
+        end
+        -- indicators system end
+        
+        local defaultAmbient
+        local function apply_ambient()
+            local Lighting = (game and game.GetService and game:GetService("Lighting"))
+            if not Lighting then return end
+            if not defaultAmbient then
+                defaultAmbient = Lighting.Ambient
+            end
+            local ac = Config.Ambient or {}
+            if ac.Enabled then
+                local col = ac.Color or Color3.fromRGB(255, 255, 255)
+                if typeof(col) == "table" then
+                    col = col.Color or col.Color3 or col.color
+                end
+                Lighting.Ambient = col
+            else
+                if defaultAmbient ~= nil then
+                    Lighting.Ambient = defaultAmbient
+                end
+            end
+        end
+
+        -- atmosphere apply helper
+        local defaultAtmProps
+        local createdAtm = false
+        local function ensure_atmosphere()
+            local Lighting = (game and game.GetService and game:GetService("Lighting"))
+            if not Lighting then return nil end
+            local atm = Lighting:FindFirstChild("CurrentAtmosphere")
+                or Lighting:FindFirstChild("currentatmosphere")
+                or Lighting:FindFirstChildOfClass("Atmosphere")
+            if not atm then
+                atm = Instance.new("Atmosphere")
+                atm.Name = "CurrentAtmosphere"
+                atm.Parent = Lighting
+                createdAtm = true
+            end
+            return atm
+        end
+
+        local function apply_atmosphere()
+            local Lighting = (game and game.GetService and game:GetService("Lighting"))
+            if not Lighting then return end
+            local ac = Config.Atmosphere or {}
+            local atm = ensure_atmosphere()
+            if not atm then return end
+
+            if ac.Enabled then
+                if not defaultAtmProps then
+                    defaultAtmProps = {
+                        Color = atm.Color,
+                        Decay = atm.Decay,
+                        Density = atm.Density,
+                        Offset = atm.Offset,
+                        Glare = atm.Glare,
+                        Haze = atm.Haze,
+                    }
+                end
+
+                -- colors
+                if ac.Color then
+                    local col = ac.Color
+                    if typeof(col) == "table" then
+                        col = col.Color or col.Color3 or col.color
+                    end
+                    atm.Color = col
+                end
+                if ac.Decay then
+                    local dec = ac.Decay
+                    if typeof(dec) == "table" then
+                        dec = dec.Color or dec.Color3 or dec.color
+                    end
+                    atm.Decay = dec
+                end
+
+                -- numbers (use reasonable bounds)
+                if typeof(ac.Density) == "number" then
+                    atm.Density = math.clamp(ac.Density, 0, 1)
+                end
+                if typeof(ac.Offset) == "number" then
+                    atm.Offset = math.clamp(ac.Offset, -1, 1)
+                end
+                if typeof(ac.Glare) == "number" then
+                    atm.Glare = math.clamp(ac.Glare, 0, 10)
+                end
+                if typeof(ac.Haze) == "number" then
+                    atm.Haze = math.clamp(ac.Haze, 0, 10)
+                end
+            else
+                if createdAtm then
+                    -- if we created it, remove it entirely on disable
+                    atm:Destroy()
+                    createdAtm = false
+                    defaultAtmProps = nil
+                elseif defaultAtmProps then
+                    -- restore previous values
+                    atm.Color = defaultAtmProps.Color
+                    atm.Decay = defaultAtmProps.Decay
+                    atm.Density = defaultAtmProps.Density
+                    atm.Offset = defaultAtmProps.Offset
+                    atm.Glare = defaultAtmProps.Glare
+                    atm.Haze = defaultAtmProps.Haze
+                end
+            end
+        end
+
+        -- bloom apply helper
+        local function apply_bloom()
+            local Lighting = (game and game.GetService and game:GetService("Lighting"))
+            if not Lighting then return end
+            local bc = Config.Bloom or {}
+
+            local EFF_NAME = "RebuildBloom"
+            if not (bc.Enabled and true or false) then
+                local old = Lighting:FindFirstChild(EFF_NAME)
+                if old then old:Destroy() end
+                return
+            end
+
+            local eff = Lighting:FindFirstChild(EFF_NAME)
+            if not eff then
+                eff = Instance.new("BloomEffect")
+                eff.Name = EFF_NAME
+                eff.Parent = Lighting
+            end
+
+            local intensity = typeof(bc.Intensity) == "number" and math.clamp(bc.Intensity, 0, 10) or 1
+            local size = typeof(bc.Size) == "number" and math.clamp(bc.Size, 0, 100) or 24
+            local threshold = typeof(bc.Threshold) == "number" and math.clamp(bc.Threshold, 0, 1) or 0.7
+            eff.Intensity = intensity
+            eff.Size = size
+            eff.Threshold = threshold
+            eff.Enabled = true
+        end
+
+        -- UI (move to a dedicated World column)
+        local world_column = v:column()
+        local cc_section = world_column:section({name = "World"})
+        local cc_toggle = cc_section:toggle({
+            name = "ColorCorrection",
+            flag = "colorcorr_enabled",
+            default = (Config.ColorCorrection and Config.ColorCorrection.Enabled) or false,
+            callback = function(state)
+                Config.ColorCorrection.Enabled = state and true or false
+                apply_color_correction()
+            end
+        })
+
+        -- dependent controls
+        local cc_dep = cc_section:dependency_box()
+        cc_dep:setup_dependencies({ { cc_toggle, true } })
+
+        cc_dep:slider({
+            name = "Brightness",
+            flag = "colorcorr_brt",
+            min = -0.5, max = 0.5, default = (Config.ColorCorrection and Config.ColorCorrection.Brightness) or 0, interval = 0.01,
+            callback = function(v)
+                Config.ColorCorrection.Brightness = v
+                apply_color_correction()
+            end
+        })
+
+        cc_dep:slider({
+            name = "Contrast",
+            flag = "colorcorr_ctr",
+            min = 0, max = 1, default = (Config.ColorCorrection and Config.ColorCorrection.Contrast) or 0, interval = 0.01,
+            callback = function(v)
+                Config.ColorCorrection.Contrast = v
+                apply_color_correction()
+            end
+        })
+
+        cc_dep:slider({
+            name = "Saturation",
+            flag = "colorcorr_sat",
+            min = -0.5, max = 0.5, default = (Config.ColorCorrection and Config.ColorCorrection.Saturation) or 0, interval = 0.01,
+            callback = function(v)
+                Config.ColorCorrection.Saturation = v
+                apply_color_correction()
+            end
+        })
+
+        cc_toggle:colorpicker({
+            name = "TintColor",
+            flag = "colorcorr_tint",
+            color = (Config.ColorCorrection and Config.ColorCorrection.TintColor) or Color3.fromRGB(255,255,255),
+            callback = function(color)
+                local c = color
+                if typeof(color) == "table" then
+                    c = color.Color or color.Color3 or color.color
+                end
+                Config.ColorCorrection.TintColor = c
+                apply_color_correction()
+            end
+        })
+
+        -- Ambient toggle + colorpicker
+        local ambient_toggle = cc_section:toggle({
+            name = "Ambient",
+            flag = "ambient_enabled",
+            default = (Config.Ambient and Config.Ambient.Enabled) or false,
+            callback = function(state)
+                Config.Ambient.Enabled = state and true or false
+                apply_ambient()
+            end
+        })
+        ambient_toggle:colorpicker({
+            name = "AmbientColor",
+            flag = "ambient_color",
+            color = (Config.Ambient and Config.Ambient.Color) or Color3.fromRGB(255,255,255),
+            callback = function(color)
+                local c = color
+                if typeof(color) == "table" then
+                    c = color.Color or color.Color3 or color.color
+                end
+                Config.Ambient.Color = c
+                apply_ambient()
+            end
+        })
+
+        -- Atmosphere toggle + controls
+        local atm_toggle = cc_section:toggle({
+            name = "Atmosphere",
+            flag = "atmosphere_enabled",
+            default = (Config.Atmosphere and Config.Atmosphere.Enabled) or false,
+            callback = function(state)
+                Config.Atmosphere.Enabled = state and true or false
+                apply_atmosphere()
+            end
+        })
+
+        -- colorpickers
+        atm_toggle:colorpicker({
+            name = "Color",
+            flag = "atmosphere_color",
+            color = (Config.Atmosphere and Config.Atmosphere.Color) or Color3.fromRGB(255,255,255),
+            callback = function(color)
+                local c = color
+                if typeof(color) == "table" then
+                    c = color.Color or color.Color3 or color.color
+                end
+                Config.Atmosphere.Color = c
+                apply_atmosphere()
+            end
+        })
+        atm_toggle:colorpicker({
+            name = "Decay",
+            flag = "atmosphere_decay",
+            color = (Config.Atmosphere and Config.Atmosphere.Decay) or Color3.fromRGB(0,0,0),
+            callback = function(color)
+                local c = color
+                if typeof(color) == "table" then
+                    c = color.Color or color.Color3 or color.color
+                end
+                Config.Atmosphere.Decay = c
+                apply_atmosphere()
+            end
+        })
+
+        -- dependent sliders
+        local atm_dep = cc_section:dependency_box()
+        atm_dep:setup_dependencies({ { atm_toggle, true } })
+
+        atm_dep:slider({
+            name = "Density",
+            flag = "atmosphere_density",
+            min = 0, max = 1, default = (Config.Atmosphere and Config.Atmosphere.Density) or 0, interval = 0.01,
+            callback = function(v)
+                Config.Atmosphere.Density = v
+                apply_atmosphere()
+            end
+        })
+
+        atm_dep:slider({
+            name = "Offset",
+            flag = "atmosphere_offset",
+            min = -1, max = 1, default = (Config.Atmosphere and Config.Atmosphere.Offset) or 0, interval = 0.01,
+            callback = function(v)
+                Config.Atmosphere.Offset = v
+                apply_atmosphere()
+            end
+        })
+
+        atm_dep:slider({
+            name = "Glare",
+            flag = "atmosphere_glare",
+            min = 0, max = 10, default = (Config.Atmosphere and Config.Atmosphere.Glare) or 0, interval = 0.05,
+            callback = function(v)
+                Config.Atmosphere.Glare = v
+                apply_atmosphere()
+            end
+        })
+
+        atm_dep:slider({
+            name = "Haze",
+            flag = "atmosphere_haze",
+            min = 0, max = 10, default = (Config.Atmosphere and Config.Atmosphere.Haze) or 0, interval = 0.05,
+            callback = function(v)
+                Config.Atmosphere.Haze = v
+                apply_atmosphere()
+            end
+        })
+
+        -- Bloom toggle + controls (in World)
+        local bloom_toggle = cc_section:toggle({
+            name = "Bloom",
+            flag = "bloom_enabled",
+            default = (Config.Bloom and Config.Bloom.Enabled) or false,
+            callback = function(state)
+                Config.Bloom.Enabled = state and true or false
+                apply_bloom()
+            end
+        })
+
+        local bloom_dep = cc_section:dependency_box()
+        bloom_dep:setup_dependencies({ { bloom_toggle, true } })
+
+        bloom_dep:slider({
+            name = "Int",
+            flag = "bloom_intensity",
+            min = 0, max = 10, default = (Config.Bloom and Config.Bloom.Intensity) or 1, interval = 0.05,
+            callback = function(v)
+                Config.Bloom.Intensity = v
+                apply_bloom()
+            end
+        })
+
+        bloom_dep:slider({
+            name = "Size",
+            flag = "bloom_size",
+            min = 0, max = 100, default = (Config.Bloom and Config.Bloom.Size) or 24, interval = 1,
+            callback = function(v)
+                Config.Bloom.Size = v
+                apply_bloom()
+            end
+        })
+
+        bloom_dep:slider({
+            name = "Thr",
+            flag = "bloom_threshold",
+            min = 0, max = 1, default = (Config.Bloom and Config.Bloom.Threshold) or 0.7, interval = 0.01,
+            callback = function(v)
+                Config.Bloom.Threshold = v
+                apply_bloom()
+            end
+        })
+
+        -- Textures toggle + dropdown (in World)
+        local textures_toggle = cc_section:toggle({
+            name = "Textures",
+            flag = "textures_enabled",
+            default = (Config.Textures and Config.Textures.Enabled) or false,
+            callback = function(state)
+                Config.Textures.Enabled = state and true or false
+                if state then
+                    enable_textures()
+                else
+                    disable_textures()
+                end
+            end
+        })
+
+        local textures_dep = cc_section:dependency_box()
+        textures_dep:setup_dependencies({ { textures_toggle, true } })
+        local materials_list = ensure_material_list()
+        textures_dep:dropdown({
+            name = "Mat",
+            flag = "textures_material",
+            items = materials_list,
+            default = (Config.Textures and Config.Textures.Selected) or "Plastic",
+            callback = function(v)
+                Config.Textures.Selected = v
+                if Config.Textures and Config.Textures.Enabled then
+                    enable_textures()
+                end
+            end
+        })
+
+        -- Skybox toggle + preset dropdown
+        local skybox_toggle = cc_section:toggle({
+            name = "Skybox",
+            flag = "skybox_enabled",
+            default = (Config.Skybox and Config.Skybox.Enabled) or false,
+            callback = function(state)
+                Config.Skybox.Enabled = state and true or false
+                apply_skybox()
+            end
+        })
+        local skybox_dep = cc_section:dependency_box()
+        skybox_dep:setup_dependencies({ { skybox_toggle, true } })
+        local sky_items = ensure_skybox_list()
+        skybox_dep:dropdown({
+            name = "Set",
+            flag = "skybox_set",
+            items = sky_items,
+            default = (Config.Skybox and Config.Skybox.Selected) or "Night Sky",
+            callback = function(v)
+                Config.Skybox.Selected = v
+                if Config.Skybox and Config.Skybox.Enabled then
+                    apply_skybox()
+                end
+            end
+        })
+
+        -- Time changer
+        local time_toggle = cc_section:toggle({
+            name = "Time",
+            flag = "time_enabled",
+            default = (Config.Time and Config.Time.Enabled) or false,
+            callback = function(state)
+                Config.Time.Enabled = state and true or false
+                apply_time()
+            end
+        })
+        local time_dep = cc_section:dependency_box()
+        time_dep:setup_dependencies({ { time_toggle, true } })
+        time_dep:slider({
+            name = "Hrs",
+            flag = "time_hours",
+            min = 0, max = 23, default = (Config.Time and Config.Time.Hours) or 12, interval = 1,
+            callback = function(v)
+                Config.Time.Hours = v
+                apply_time()
+            end
+        })
+        time_dep:slider({
+            name = "Min",
+            flag = "time_minutes",
+            min = 0, max = 59, default = (Config.Time and Config.Time.Minutes) or 0, interval = 1,
+            callback = function(v)
+                Config.Time.Minutes = v
+                apply_time()
+            end
+        })
+
+        -- apply on load if enabled
+        task.defer(apply_color_correction)
+        task.defer(apply_ambient)
+        task.defer(apply_atmosphere)
+        task.defer(apply_bloom)
+        task.defer(apply_skybox)
+        task.defer(apply_time)
+        task.defer(apply_fov)
+        task.defer(apply_aspect_ratio)
+        task.defer(apply_third_person)
+        task.defer(apply_crosshair)
+        task.defer(apply_indicators)
+        task.defer(function()
+            if Config.Textures and Config.Textures.Enabled then
+                enable_textures()
+            end
+        end)
+        
+        -- Random section in the same World column
+        local random_section = world_column:section({name = "Random"})
+
+        -- FieldOfView control
+        local fov_toggle = random_section:toggle({
+            name = "FieldOfView",
+            flag = "fov_enabled",
+            default = (Config.FOV and Config.FOV.Enabled) or false,
+            callback = function(state)
+                Config.FOV.Enabled = state and true or false
+                apply_fov()
+            end
+        })
+
+        local fov_dep = random_section:dependency_box()
+        fov_dep:setup_dependencies({ { fov_toggle, true } })
+        fov_dep:slider({
+            name = "FOV",
+            flag = "fov_value",
+            min = 60, max = 180, default = (Config.FOV and Config.FOV.Value) or 70, interval = 1,
+            callback = function(v)
+                Config.FOV.Value = v
+                apply_fov()
+            end
+        })
+
+        -- AspectRatio control
+        local ar_toggle = random_section:toggle({
+            name = "AspectRatio",
+            flag = "aspect_enabled",
+            default = (Config.AspectRatio and Config.AspectRatio.Enabled) or false,
+            callback = function(state)
+                Config.AspectRatio.Enabled = state and true or false
+                apply_aspect_ratio()
+            end
+        })
+
+        local ar_dep = random_section:dependency_box()
+        ar_dep:setup_dependencies({ { ar_toggle, true } })
+        ar_dep:slider({
+            name = "Hor",
+            flag = "aspect_horizontal",
+            min = 50, max = 120, default = math.clamp((Config.AspectRatio and Config.AspectRatio.Horizontal) or 100, 50, 120), interval = 1,
+            callback = function(v)
+                Config.AspectRatio.Horizontal = v
+                apply_aspect_ratio()
+            end
+        })
+        ar_dep:slider({
+            name = "Ver",
+            flag = "aspect_vertical",
+            min = 50, max = 120, default = math.clamp((Config.AspectRatio and Config.AspectRatio.Vertical) or 100, 50, 120), interval = 1,
+            callback = function(v)
+                Config.AspectRatio.Vertical = v
+                apply_aspect_ratio()
+            end
+        })
+
+        -- ThirdPerson control
+        local tp_toggle = random_section:toggle({
+            name = "ThirdPerson",
+            flag = "tp_enabled",
+            default = (Config.ThirdPerson and Config.ThirdPerson.Enabled) or false,
+            callback = function(state)
+                Config.ThirdPerson.Enabled = state and true or false
+                apply_third_person()
+            end
+        })
+
+        local tp_dep = random_section:dependency_box()
+        tp_dep:setup_dependencies({ { tp_toggle, true } })
+        tp_dep:slider({
+            name = "X",
+            flag = "tp_x",
+            min = -20, max = 20, default = (Config.ThirdPerson and Config.ThirdPerson.X) or 0, interval = 0.1,
+            callback = function(v)
+                Config.ThirdPerson.X = v
+                apply_third_person()
+            end
+        })
+        tp_dep:slider({
+            name = "Y",
+            flag = "tp_y",
+            min = -20, max = 20, default = (Config.ThirdPerson and Config.ThirdPerson.Y) or 0, interval = 0.1,
+            callback = function(v)
+                Config.ThirdPerson.Y = v
+                apply_third_person()
+            end
+        })
+        tp_dep:slider({
+            name = "Z",
+            flag = "tp_z",
+            min = -20, max = 20, default = (Config.ThirdPerson and Config.ThirdPerson.Z) or 0, interval = 0.1,
+            callback = function(v)
+                Config.ThirdPerson.Z = v
+                apply_third_person()
+            end
+        })
+
+        -- Crosshair control
+        local ch_toggle = random_section:toggle({
+            name = "Crosshair",
+            flag = "ch_enabled",
+            default = (Config.Crosshair and Config.Crosshair.Enabled) or false,
+            callback = function(state)
+                Config.Crosshair.Enabled = state and true or false
+                apply_crosshair()
+            end
+        })
+
+        -- attach colorpickers to toggle (per request)
+        ch_toggle:colorpicker({
+            name = "Fill",
+            flag = "ch_color",
+            color = (Config.Crosshair and Config.Crosshair.CrosshairColor) or Color3.fromRGB(255, 255, 255),
+            callback = function(color)
+                Config.Crosshair.CrosshairColor = color
+                apply_crosshair()
+            end
+        })
+        ch_toggle:colorpicker({
+            name = "Outline",
+            flag = "ch_outline",
+            color = (Config.Crosshair and Config.Crosshair.OutlineColor) or Color3.fromRGB(0, 0, 0),
+            callback = function(color)
+                Config.Crosshair.OutlineColor = color
+                apply_crosshair()
+            end
+        })
+
+        local ch_dep = random_section:dependency_box()
+        ch_dep:setup_dependencies({ { ch_toggle, true } })
+        -- removed Sides slider
+        ch_dep:slider({
+            name = "Length",
+            flag = "ch_length",
+            min = 5, max = 300, default = (Config.Crosshair and Config.Crosshair.Length) or 10, interval = 1,
+            callback = function(v)
+                Config.Crosshair.Length = v
+                apply_crosshair()
+            end
+        })
+        ch_dep:slider({
+            name = "Gap",
+            flag = "ch_gap",
+            min = 0, max = 20, default = (Config.Crosshair and Config.Crosshair.GapSize) or 5, interval = 1,
+            callback = function(v)
+                Config.Crosshair.GapSize = v
+                apply_crosshair()
+            end
+        })
+        ch_dep:slider({
+            name = "Thickness",
+            flag = "ch_thickness",
+            min = 1, max = 5, default = (Config.Crosshair and Config.Crosshair.Thickness) or 2, interval = 1,
+            callback = function(v)
+                Config.Crosshair.Thickness = v
+                apply_crosshair()
+            end
+        })
+        ch_dep:toggle({
+            name = "Rotating",
+            flag = "ch_rotating",
+            default = (Config.Crosshair and Config.Crosshair.AlwaysRotating) or false,
+            callback = function(state)
+                Config.Crosshair.AlwaysRotating = state and true or false
+                apply_crosshair()
+            end
+        })
+        ch_dep:slider({
+            name = "Speed",
+            flag = "ch_speed",
+            min = 1, max = 10, default = (Config.Crosshair and Config.Crosshair.Speed) or 1, interval = 1,
+            callback = function(v)
+                Config.Crosshair.Speed = v
+                apply_crosshair()
+            end
+        })
+        ch_dep:toggle({
+            name = "Pulse",
+            flag = "ch_pulse",
+            default = (Config.Crosshair and Config.Crosshair.Pulse) or false,
+            callback = function(state)
+                Config.Crosshair.Pulse = state and true or false
+                apply_crosshair()
+            end
+        })
+        -- AttachToTarget toggle
+        ch_dep:toggle({
+            name = "AttachToTarget",
+            flag = "ch_attach",
+            default = (Config.Crosshair and Config.Crosshair.AttachToTarget) or false,
+            callback = function(state)
+                Config.Crosshair.AttachToTarget = state and true or false
+                apply_crosshair()
+            end
+        })
+        -- HideCursor toggle
+        ch_dep:toggle({
+            name = "HideCursor",
+            flag = "ch_hidecursor",
+            default = (Config.Crosshair and Config.Crosshair.HideCursor) or false,
+            callback = function(state)
+                Config.Crosshair.HideCursor = state and true or false
+                if apply_mouse_icon then apply_mouse_icon() end
+            end
+        })
+        -- Position dropdown (Mouse/Center)
+        ch_dep:dropdown({
+            name = "Position",
+            flag = "ch_position",
+            items = {"Mouse", "Center"},
+            default = ((Config.Crosshair and Config.Crosshair.Position) == "center") and "Center" or "Mouse",
+            callback = function(v)
+                local val = tostring(v)
+                if val == "Center" or val == "center" then
+                    Config.Crosshair.Position = "center"
+                else
+                    Config.Crosshair.Position = "mouse"
+                end
+                apply_crosshair()
+            end
+        })
+        
+        -- Indicators UI
+        local ind_toggle = random_section:toggle({
+            name = "Indicators",
+            flag = "ind_enabled",
+            default = (Config.Indicators and Config.Indicators.Enabled) or false,
+            callback = function(state)
+                Config.Indicators = Config.Indicators or {}
+                Config.Indicators.Enabled = state and true or false
+                -- fix text sizes to 13 for all indicators
+                Config.Indicators.ClientSize = 13
+                Config.Indicators.InfoSize = 13
+                apply_indicators()
+            end
+        })
+
+        local ind_dep = random_section:dependency_box()
+        ind_dep:setup_dependencies({ { ind_toggle, true } })
+        ind_dep:dropdown({
+            name = "Indicators",
+            flag = "ind_list",
+            items = {"ClientName", "localplayerHP", "TargetHP", "LocalPlayerSpeed", "TargetDistance", "FPS", "Ping"},
+            multi = true,
+            default = (Config.Indicators and Config.Indicators.Selected) or {"localplayerHP"},
+            callback = function(list)
+                Config.Indicators = Config.Indicators or {}
+                Config.Indicators.Selected = (type(list) == "table" and list) or {}
+                apply_indicators()
+            end
+        })
+    end
+    -- color correction system end
     
     -- Slashes (Local) functionality
     do
