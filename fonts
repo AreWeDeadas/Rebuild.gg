@@ -203,6 +203,7 @@ for _, path in next, library.folders do
 	makefolder(library.directory .. path)
 end
 
+-- font loading system
 local function decode_base64(data)
     local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
     data = string.gsub(data, '[^'..b..'=]', '')
@@ -223,27 +224,93 @@ local function decode_base64(data)
     end))
 end
 
--- загружаем Minecraftia
-if not isfile("Minecraftia.ttf") then
-    local minecraftia_data = game:HttpGet("https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/Minecraftia.txt")
-    writefile("Minecraftia.ttf", decode_base64(minecraftia_data))
-end
-
-local minecraftia_font = {
-	name = "Minecraftia",
-	faces = {
-		{
-			name = "Regular",
-			weight = 200,
-			style = "normal",
-			assetId = getcustomasset("Minecraftia.ttf"),
-		},
-	},
+-- font sources from ESP lib
+local font_sources = {
+    {name = "ProggyClean", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/ProggyClean.txt", weight = 200},
+    {name = "ProggyTiny", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/ProggyTiny.txt", weight = 200},
+    {name = "Minecraftia", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/Minecraftia.txt", weight = 200},
+    {name = "SmallestPixel7", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/SmallestPixel7.txt", weight = 200},
+    {name = "Verdana", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/Verdana.txt", weight = 400},
+    {name = "VerdanaBold", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/VerdanaBold.txt", weight = 700},
+    {name = "Tahoma", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/Tahoma.txt", weight = 400},
+    {name = "TahomaBold", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/TahomaBold.txt", weight = 700},
+    {name = "CSGO", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/CSGO.txt", weight = 400},
+    {name = "WindowsXPTahoma", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/WindowsXPTahoma.txt", weight = 400},
+    {name = "Stratum2", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/Stratum2.txt", weight = 400},
+    {name = "Visitor", url = "https://raw.githubusercontent.com/suspendthread/uwu/refs/heads/main/dependencies/assets/fonts/Visitor.txt", weight = 400}
 }
 
-writefile("Minecraftia.json", http_service:JSONEncode(minecraftia_font))
+-- loaded fonts cache
+library.loaded_fonts = {}
 
-library.font = Font.new(getcustomasset("Minecraftia.json"), Enum.FontWeight.Regular)
+-- load font function
+function library:load_font(font_name)
+    -- check cache
+    if library.loaded_fonts[font_name] then
+        return library.loaded_fonts[font_name]
+    end
+    
+    -- find font source
+    local font_data
+    for _, font in ipairs(font_sources) do
+        if font.name == font_name then
+            font_data = font
+            break
+        end
+    end
+    
+    if not font_data then
+        warn("[Library] Font not found: " .. font_name)
+        return nil
+    end
+    
+    -- load font file
+    local ttf_file = font_name .. ".ttf"
+    local json_file = font_name .. ".json"
+    
+    if not isfile(ttf_file) then
+        local font_base64 = game:HttpGet(font_data.url)
+        writefile(ttf_file, decode_base64(font_base64))
+    end
+    
+    -- create font json
+    local font_json = {
+        name = font_name,
+        faces = {
+            {
+                name = "Regular",
+                weight = font_data.weight,
+                style = "normal",
+                assetId = getcustomasset(ttf_file)
+            }
+        }
+    }
+    
+    writefile(json_file, http_service:JSONEncode(font_json))
+    
+    -- create font object
+    local font_obj = Font.new(getcustomasset(json_file), Enum.FontWeight.Regular)
+    library.loaded_fonts[font_name] = font_obj
+    
+    return font_obj
+end
+
+-- set font function
+function library:set_font(font_name)
+    local font = library:load_font(font_name)
+    if font then
+        library.font = font
+        -- update all existing UI elements
+        for _, gui in pairs(library.guis) do
+            if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
+                gui.FontFace = font
+            end
+        end
+    end
+end
+
+-- load default font
+library:set_font("Minecraftia")
 
 local config_holder
 --
